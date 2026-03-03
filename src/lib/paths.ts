@@ -5,8 +5,8 @@ const SERVER_ROOT = "/Users/minmac.serv/server";
 const AGENT_WORKSPACE = `${SERVER_ROOT}/agent/workspace`;
 
 // Ticket system
-export const TICKET_DIR = `${AGENT_WORKSPACE}/tickets`;
-export const PATCH_DIR = `${AGENT_WORKSPACE}/patches`;
+export const TICKET_DIR = `${AGENT_WORKSPACE}/tickets/tickets`;
+export const PATCH_DIR = `${AGENT_WORKSPACE}/tickets/patches`;
 export const TICKET_INDEX = path.join(TICKET_DIR, "index.json");
 export const PATCH_INDEX = path.join(PATCH_DIR, "index.json");
 export const TICKET_ARCHIVE = path.join(TICKET_DIR, "archive.json");
