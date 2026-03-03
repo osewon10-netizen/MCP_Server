@@ -225,7 +225,7 @@ MANTIS being down degrades deploy, health, cron, and event tools. PM2, git, tick
 | Hobby Bot v2 | hobby_bot | — | `services/hobby_bot/repo/` |
 | MAGGOTS (FinanceDashboard) | maggots-backend | 8000 | `services/maggots/repo/` |
 | Sillage (Fragrance Engine) | sillage | 3001 | `services/sillage/` |
-| MANTIS (Server Ops) | cp-app | 3200 | `server_ops/` |
+| MANTIS (Server Ops) | cp-app | 3200 | `mantis/` |
 
 Alpha Lab v2 is not deployed on Mini (dev rig only).
 
@@ -236,7 +236,7 @@ Backups, configs, data, and secrets live OUTSIDE repos:
 ```
 /Users/minmac.serv/server/
 ├── services/{svc}/[repo/]    # Git repos (MCP reads these)
-├── server_ops/               # MANTIS (directly at root)
+├── mantis/                   # MANTIS (directly at root)
 ├── agent/workspace/          # Tickets, patches, memory (MCP manages these)
 ├── backups/{svc}/            # Backup files (MCP reads, outside repos)
 ├── config/env/               # .env files per service (outside repos)

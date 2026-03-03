@@ -195,7 +195,7 @@ Agent (any machine)
 │   ├── hobby_bot/repo/             # Git repo (note: repo/ subdir)
 │   ├── maggots/repo/               # Git repo (note: repo/ subdir)
 │   └── sillage/                    # Git repo (no subdir)
-├── server_ops/                     # MANTIS repo (directly at root)
+├── mantis/                         # MANTIS repo (directly at root)
 ├── mini_cp_server/                 # This MCP server repo
 └── state/                          # Runtime state
 ```
