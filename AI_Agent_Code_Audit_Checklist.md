@@ -9,7 +9,7 @@ Deep audit checklist for comprehensive health reviews. Two modes based on scope.
 Periodic health check. Run monthly or after a batch of changes.
 
 ### A1. Tool Coverage Inventory
-- [ ] Count tools in code matches count in AGENTS.md tool registry (currently 33)
+- [ ] Count tools in code matches count in AGENTS.md tool registry (currently 46)
 - [ ] Every tool in `server.ts`'s `toolModules[]` has a matching handler
 - [ ] No orphaned tool definitions (defined in module but unreachable from server.ts)
 - [ ] No orphaned handlers (case in switch but no matching tool definition)
@@ -93,7 +93,7 @@ Comprehensive review. Run quarterly, after incidents, or before major architectu
 - [ ] No schema says `required: ["x"]` when the handler has a fallback for missing `x`
 - [ ] No schema omits `required` when the handler would crash on missing args
 - [ ] `description` strings are specific enough for an agent to use without reading source
-- [ ] No duplicate tool names across all 13 modules
+- [ ] No duplicate tool names across all 17 modules
 
 ### A13. Data Flow Tracing
 Trace end-to-end for each critical path:

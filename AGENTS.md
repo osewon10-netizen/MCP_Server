@@ -2,7 +2,7 @@
 
 ## 1. Identity
 
-**What:** MCP (Model Context Protocol) server exposing 33 structured tools over HTTP for multi-agent ops across 4 service repos on Mini.
+**What:** MCP (Model Context Protocol) server exposing 46 structured tools over HTTP for multi-agent ops across 4 service repos on Mini.
 
 **Who uses it:** Claude Code (Opus/Sonnet), Codex, Gemini CLI, OpenClaw — any agent that speaks MCP over HTTP.
 
@@ -34,7 +34,7 @@ mini_cp_server/
 │
 ├── src/
 │   ├── index.ts              # HTTP entry — POST /mcp, GET /health
-│   ├── server.ts             # MCP server factory — registers 13 tool modules
+│   ├── server.ts             # MCP server factory — registers 17 tool modules
 │   ├── types.ts              # All shared interfaces (Ticket, Patch, MANTIS, etc.)
 │   │
 │   ├── lib/                  # Shared utilities (no tools here)
@@ -48,19 +48,23 @@ mini_cp_server/
 │   │   └── ollama-client.ts      # Ollama REST client (localhost:11434)
 │   │
 │   └── tools/                # Tool modules — each exports tools[] + handleCall()
-│       ├── tickets.ts        # 4 tools: create/list/view/update tickets
-│       ├── patches.ts        # 4 tools: create/list/view/update patches
+│       ├── tickets.ts        # 6 tools: create/list/view/search/update/archive tickets
+│       ├── patches.ts        # 6 tools: create/list/view/search/update/archive patches
 │       ├── tags.ts           # 2 tools: lookup_tags, validate_failure_class
 │       ├── registry.ts       # 1 tool: service_registry
 │       ├── mantis.ts         # 6 tools: events, rules, runner proxy
-│       ├── health.ts         # 5 tools: pm2_status, service_health, disk, backup, mantis_health
+│       ├── health.ts         # 7 tools: pm2_status/restart, service_health, disk, backup, mantis_health, tail_url
 │       ├── logs.ts           # 2 tools: service_logs, search_logs
 │       ├── deploy.ts         # 3 tools: deploy_status, deploy, rollback
 │       ├── review.ts         # 2 tools: get_checklist, log_review
 │       ├── cron.ts           # 3 tools: list_crons, cron_log, trigger_cron
 │       ├── memory.ts         # 3 tools: get_context, set_context, get_project_info
 │       ├── git.ts            # 3 tools: git_log, git_diff, git_status
-│       └── ollama.ts         # 2 tools: ollama_generate, ollama_models
+│       ├── ollama.ts         # 2 tools: ollama_generate, ollama_models
+│       ├── wrappers.ts       # 2 tools: list_wrappers, run_wrapper
+│       ├── overview.ts       # 2 tools: server_overview, batch_ticket_status
+│       ├── files.ts          # 2 tools: file_read, file_write (scoped to agent/workspace/)
+│       └── network.ts        # 1 tool: network_quality (time-series metrics)
 │
 └── build/                    # Compiled JS output (gitignored)
 ```
@@ -87,24 +91,32 @@ Agent (any machine)
   │                    ├─ tools/memory.ts ──────→ filesystem (memory dir)
   │                    ├─ tools/git.ts ─────────→ git CLI per service repo
   │                    ├─ tools/registry.ts ────→ hardcoded service metadata
-  │                    └─ tools/ollama.ts ──────→ Ollama REST (localhost:11434)
+  │                    ├─ tools/ollama.ts ──────→ Ollama REST (localhost:11434)
+  │                    ├─ tools/wrappers.ts ───→ ops scripts (agent/wrappers/)
+  │                    ├─ tools/overview.ts ───→ aggregates PM2+disk+tickets+watchdog
+  │                    ├─ tools/files.ts ──────→ filesystem (scoped to agent/workspace/)
+  │                    └─ tools/network.ts ────→ ping + metrics JSONL
 ```
 
 **Stateless design:** Each POST /mcp creates a fresh MCP server + transport. No sessions, no state between requests. This is deliberate — the server is a tool bridge, not an application.
 
-## 5. Tool Registry (33 tools)
+## 5. Tool Registry (46 tools)
 
-### Ticketing (10 tools)
+### Ticketing (14 tools)
 | Tool | Module | What It Does |
 |------|--------|-------------|
 | `create_ticket` | tickets.ts | Create TK-XXX with validation + tag normalization |
 | `list_tickets` | tickets.ts | Filter by service/status from index.json |
 | `view_ticket` | tickets.ts | Read full markdown file content |
+| `search_tickets` | tickets.ts | Keyword search across open index + archive |
 | `update_ticket_status` | tickets.ts | Status transition + file rename + archive on resolve |
+| `archive_ticket` | tickets.ts | Full close workflow: fill verification, rename, move, archive |
 | `create_patch` | patches.ts | Create PA-XXX with validation |
 | `list_patches` | patches.ts | Filter by service/status from index.json |
 | `view_patch` | patches.ts | Read full markdown file content |
+| `search_patches` | patches.ts | Keyword search across open index + archive |
 | `update_patch_status` | patches.ts | Status transition + archive on verify |
+| `archive_patch` | patches.ts | Full close workflow: fill verification, rename, move, archive |
 | `lookup_tags` | tags.ts | Normalize raw strings via tag-map.json |
 | `validate_failure_class` | tags.ts | Check validity + fuzzy suggestions |
 
@@ -118,14 +130,16 @@ Agent (any machine)
 | `mantis_run_action` | mantis.ts | `runner.execute` (caller: "agent") |
 | `mantis_list_actions` | mantis.ts | `runner.actionDefinitions` |
 
-### Health & Ops (5 tools)
+### Health & Ops (7 tools)
 | Tool | Module | Data Source |
 |------|--------|------------|
 | `pm2_status` | health.ts | Direct: `pm2 jlist` CLI |
+| `pm2_restart` | health.ts | Direct: `pm2 restart` + health poll |
 | `service_health` | health.ts | MANTIS: `services.byName` |
 | `disk_usage` | health.ts | Direct: `df -h /` |
 | `backup_status` | health.ts | Direct: reads backup directory |
 | `mantis_health` | health.ts | Direct: `GET /api/health` |
+| `tail_service_url` | health.ts | Direct: HTTP probe any URL with timeout |
 
 ### Logs (2 tools)
 | Tool | Module | Data Source |
@@ -173,6 +187,29 @@ Agent (any machine)
 | `ollama_generate` | ollama.ts | Local LLM generation (2-min timeout, non-streaming) |
 | `ollama_models` | ollama.ts | List available local models |
 
+### Wrappers (2 tools)
+| Tool | Module | What It Does |
+|------|--------|-------------|
+| `list_wrappers` | wrappers.ts | List .sh scripts in agent/wrappers/ |
+| `run_wrapper` | wrappers.ts | Execute a wrapper script with path traversal protection |
+
+### Overview (2 tools)
+| Tool | Module | What It Does |
+|------|--------|-------------|
+| `server_overview` | overview.ts | Single-call aggregate: PM2, disk, tickets, backups, watchdog |
+| `batch_ticket_status` | overview.ts | Batch lookup of TK/PA IDs across open + archive |
+
+### Files (2 tools)
+| Tool | Module | What It Does |
+|------|--------|-------------|
+| `file_read` | files.ts | Read file within agent/workspace/ (100KB cap) |
+| `file_write` | files.ts | Write file within agent/workspace/ (1MB cap, path-scoped) |
+
+### Network (1 tool)
+| Tool | Module | What It Does |
+|------|--------|-------------|
+| `network_quality` | network.ts | Measure latency/jitter/packet loss, record as JSONL time-series |
+
 ## 6. Mini Server Filesystem
 
 ```
@@ -180,7 +217,8 @@ Agent (any machine)
 ├── agent/workspace/                # Ticket system (MCP manages this)
 │   ├── tickets/                    # index.json, archive.json, *.md files
 │   ├── patches/                    # index.json, archive.json, *.md files
-│   └── memory/                     # Shared context files
+│   ├── memory/                     # Shared context files
+│   └── metrics/                    # Time-series data (network.jsonl)
 ├── backups/{service}/              # Per-service backups (outside repos)
 ├── config/                         # Centralized config (outside repos)
 │   ├── env/                        # hobby_bot.env, maggots.env, sillage.env
@@ -196,7 +234,7 @@ Agent (any machine)
 │   ├── maggots/repo/               # Git repo (note: repo/ subdir)
 │   └── sillage/                    # Git repo (no subdir)
 ├── mantis/                         # MANTIS repo (directly at root)
-├── mini_cp_server/                 # This MCP server repo
+├── mini_mart/                      # This MCP server repo
 └── state/                          # Runtime state
 ```
 
@@ -221,7 +259,7 @@ Agent (any machine)
 
 ## 8. Non-Negotiables
 
-1. **Never bypass MANTIS for things it manages.** Deploy goes through `runner.execute`, not raw `git pull && pm2 restart`. Health checks go through `services.byName`, not custom curl scripts.
+1. **Never bypass MANTIS for things it manages.** Deploy goes through `runner.execute`, not raw `git pull && pm2 restart`. Health checks go through `services.byName`, not custom curl scripts. Exception: `pm2_restart` is a direct restart for quick bounces — use `deploy` for full deploy workflows.
 
 2. **Atomic index writes.** All ticket/patch index updates MUST use `writeIndex()` from `index-manager.ts` (write to `.tmp`, then `rename`). Never `fs.writeFile` directly to `index.json`.
 
@@ -366,6 +404,8 @@ await writeIndex(TICKET_INDEX, index); // atomic: write .tmp → rename
 | Patch files | `/Users/minmac.serv/server/agent/workspace/patches/` | CRUD operations |
 | Service repos | `/Users/minmac.serv/server/services/{service}/[repo/]` | Git operations, checklist reads |
 | Memory dir | `/Users/minmac.serv/server/agent/workspace/memory/` | Shared context storage |
+| Metrics dir | `/Users/minmac.serv/server/agent/workspace/metrics/` | Network quality time-series |
+| Wrappers dir | `/Users/minmac.serv/server/agent/wrappers/` | Ops script execution |
 | Backup dir | `/Users/minmac.serv/server/backups/{service}/` | Backup status checks |
 | Config/env | `/Users/minmac.serv/server/config/env/` | NOT accessed by MCP (outside repos) |
 | Data dirs | `/Users/minmac.serv/server/data/{service}/` | NOT accessed by MCP (outside repos) |
@@ -407,7 +447,7 @@ If you change any of these, update the corresponding counterparts:
 | Added/removed a tool | `server.ts` toolModules[], this AGENTS.md tool registry |
 | Changed a filesystem path | `paths.ts` (single source of truth) |
 | Changed a MANTIS procedure name | `mantis-client.ts` callers + verify against MANTIS router |
-| Updated a checklist filename | `review.ts` constants (REVIEW_CHECKLIST, AUDIT_CHECKLIST), `registry.ts` SERVICES array |
+| Updated a checklist filename | `review.ts` CHECKLIST_MAP, `registry.ts` SERVICES array |
 | Changed the port | `paths.ts` MCP_PORT, `ecosystem.config.cjs` if applicable |
 | Added a new service | `paths.ts` SERVICE_REPOS, `registry.ts` SERVICES array |
 | Changed PM2 process name | `ecosystem.config.cjs`, any PM2 CLI references |

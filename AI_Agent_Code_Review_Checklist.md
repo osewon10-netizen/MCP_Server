@@ -55,7 +55,7 @@ npx tsc --noEmit       # Zero type errors
 
 ### R8. Server Registration
 - [ ] If a new tool module was added: it's imported in `server.ts` and added to `toolModules[]`
-- [ ] Tool names are globally unique across all 13 modules (no collisions)
+- [ ] Tool names are globally unique across all 17 modules (no collisions)
 - [ ] `tools/list` response includes the new tool (verify by reading `getAllToolDefinitions()` flow)
 
 ### R9. Index Operations

@@ -1,6 +1,6 @@
 # mini-mart
 
-MCP (Model Context Protocol) server that bridges AI agents to Sewon's infrastructure on Mac Mini. Exposes 33 structured tools over HTTP — ticketing, deployments, health monitoring, MANTIS proxy, git operations, and local LLM inference.
+MCP (Model Context Protocol) server that bridges AI agents to Sewon's infrastructure on Mac Mini. Exposes 46 structured tools over HTTP — ticketing, deployments, health monitoring, MANTIS proxy, git operations, file access, network metrics, and local LLM inference.
 
 ## Why This Exists
 
@@ -51,7 +51,7 @@ The server follows a simple three-layer pattern:
 
 **Layer 1 — HTTP entry** (`src/index.ts`): Bare `node:http` server. Two routes: `POST /mcp` (MCP protocol) and `GET /health` (JSON healthcheck). Each MCP request creates a fresh transport + server instance (stateless, no sessions).
 
-**Layer 2 — MCP dispatch** (`src/server.ts`): Registers 13 tool modules. On `tools/list`, returns all 33 tool definitions. On `tools/call`, finds the right module by scanning tool names and delegates.
+**Layer 2 — MCP dispatch** (`src/server.ts`): Registers 17 tool modules. On `tools/list`, returns all 46 tool definitions. On `tools/call`, finds the right module by scanning tool names and delegates.
 
 **Layer 3 — Tool modules** (`src/tools/*.ts`): Each module exports `tools: Tool[]` (MCP definitions) and `handleCall(name, args)` (implementation). Tools talk to MANTIS, PM2, Ollama, git, or the local filesystem.
 
@@ -66,11 +66,11 @@ The server follows a simple three-layer pattern:
 | Local LLM | Ollama (localhost:11434) | REST API |
 | Service metadata | In-memory registry | Hardcoded in `registry.ts` |
 
-## Tools (33 total)
+## Tools (46 total)
 
-### Ticketing (10)
-- `create_ticket` / `list_tickets` / `view_ticket` / `update_ticket_status`
-- `create_patch` / `list_patches` / `view_patch` / `update_patch_status`
+### Ticketing (14)
+- `create_ticket` / `list_tickets` / `view_ticket` / `search_tickets` / `update_ticket_status` / `archive_ticket`
+- `create_patch` / `list_patches` / `view_patch` / `search_patches` / `update_patch_status` / `archive_patch`
 - `lookup_tags` — normalize raw tag strings via tag-map.json
 - `validate_failure_class` — check validity with fuzzy suggestions
 
@@ -79,12 +79,14 @@ The server follows a simple three-layer pattern:
 - `mantis_rules` / `mantis_toggle_rule` — automation rules
 - `mantis_run_action` / `mantis_list_actions` — runner operations
 
-### Health & Ops (5)
+### Health & Ops (7)
 - `pm2_status` — raw PM2 process data (direct CLI, not MANTIS)
+- `pm2_restart` — direct PM2 restart with post-restart health poll
 - `service_health` — MANTIS health state (ok/warn/critical)
 - `disk_usage` — `df -h /` output
 - `backup_status` — backup directory listing with sizes
 - `mantis_health` — MANTIS reachability check
+- `tail_service_url` — HTTP probe any URL with timeout, status code, body preview
 
 ### Logs (2)
 - `service_logs` — recent PM2 log output
@@ -113,6 +115,20 @@ The server follows a simple three-layer pattern:
 - `ollama_generate` — local LLM generation
 - `ollama_models` — list available models
 
+### Wrappers (2)
+- `list_wrappers` — list .sh scripts in agent/wrappers/
+- `run_wrapper` — execute a wrapper script with path traversal protection
+
+### Overview (2)
+- `server_overview` — single-call aggregate: PM2, disk, tickets, backups, watchdog state
+- `batch_ticket_status` — batch lookup of TK/PA IDs across open + archive
+
+### Files (2)
+- `file_read` / `file_write` — scoped filesystem access within agent/workspace/
+
+### Network (1)
+- `network_quality` — measure latency/jitter/packet loss, record as JSONL time-series
+
 ## Project Structure
 
 ```
@@ -129,20 +145,24 @@ src/
 │   ├── mantis-client.ts      # HTTP client → MANTIS tRPC
 │   ├── pm2-client.ts         # PM2 CLI wrapper
 │   └── ollama-client.ts      # Ollama REST client
-└── tools/                # 13 tool modules (33 tools total)
-    ├── tickets.ts        # Ticket CRUD
-    ├── patches.ts        # Patch CRUD
+└── tools/                # 17 tool modules (46 tools total)
+    ├── tickets.ts        # Ticket CRUD + search + archive
+    ├── patches.ts        # Patch CRUD + search + archive
     ├── tags.ts           # Tag normalization
     ├── registry.ts       # Service metadata
     ├── mantis.ts         # MANTIS tRPC proxy
-    ├── health.ts         # PM2 + health checks
+    ├── health.ts         # PM2 status/restart, health checks, HTTP probe
     ├── logs.ts           # Log retrieval + search
     ├── deploy.ts         # Deploy/rollback via MANTIS
     ├── review.ts         # Checklist reader + audit log
     ├── cron.ts           # Cron management
     ├── memory.ts         # Shared context storage
     ├── git.ts            # Git operations per repo
-    └── ollama.ts         # Local LLM proxy
+    ├── ollama.ts         # Local LLM proxy
+    ├── wrappers.ts       # Ops script execution
+    ├── overview.ts       # Aggregate status + batch lookups
+    ├── files.ts          # Scoped file read/write
+    └── network.ts        # Network quality metrics
 ```
 
 ## Development
@@ -223,9 +243,10 @@ MANTIS being down degrades deploy, health, cron, and event tools. PM2, git, tick
 | Service | PM2 Name | Port | Repo Path |
 |---------|----------|------|-----------|
 | Hobby Bot v2 | hobby_bot | — | `services/hobby_bot/repo/` |
-| MAGGOTS (FinanceDashboard) | maggots-backend | 8000 | `services/maggots/repo/` |
+| MAGGOTS (FinanceDashboard) | maggots | 8000 | `services/maggots/repo/` |
 | Sillage (Fragrance Engine) | sillage | 3001 | `services/sillage/` |
 | MANTIS (Server Ops) | cp-app | 3200 | `mantis/` |
+| Mini Mart (MCP Server) | mini-mart | 6974 | `mini_mart/` |
 
 Alpha Lab v2 is not deployed on Mini (dev rig only).
 
