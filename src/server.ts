@@ -19,6 +19,7 @@ import * as cronMod from "./tools/cron.js";
 import * as memoryMod from "./tools/memory.js";
 import * as gitMod from "./tools/git.js";
 import * as ollamaMod from "./tools/ollama.js";
+import * as wrappersMod from "./tools/wrappers.js";
 
 type ToolHandler = (name: string, args: Record<string, unknown>) => Promise<CallToolResult>;
 
@@ -41,6 +42,7 @@ const toolModules: ToolModule[] = [
   memoryMod,
   gitMod,
   ollamaMod,
+  wrappersMod,
 ];
 
 function getAllToolDefinitions(): Tool[] {

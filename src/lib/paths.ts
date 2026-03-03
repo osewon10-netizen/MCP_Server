@@ -33,6 +33,9 @@ export const SERVICE_REPOS: Record<string, string> = {
 // Backups directory (per-service subdirs, outside repos)
 export const BACKUP_DIR = `${SERVER_ROOT}/backups`;
 
+// Ops/deploy wrapper scripts (symlink: agent/wrappers → server_ops/scripts)
+export const WRAPPERS_DIR = `${AGENT_WORKSPACE}/wrappers`;
+
 // MANTIS
 export const MANTIS_TRPC_URL = "http://localhost:3200/api/trpc";
 export const MANTIS_HEALTH_URL = "http://localhost:3200/api/health";

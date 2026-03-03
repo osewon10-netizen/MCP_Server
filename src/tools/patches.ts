@@ -67,6 +67,19 @@ export const tools: Tool[] = [
     },
   },
   {
+    name: "search_patches",
+    description:
+      "Search patches by keyword across both open index and archive. Returns matching summaries without loading full archive into context.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "Keyword to search (matched against summary, tags, service, failure_class, category)" },
+        service: { type: "string", description: "Optional: also filter by service" },
+      },
+      required: ["query"],
+    },
+  },
+  {
     name: "update_patch_status",
     description: "Advance a patch's status. Transitions: open → applied → verified. Renames file and updates/archives index entry.",
     inputSchema: {
@@ -217,6 +230,72 @@ async function createPatch(args: Record<string, unknown>): Promise<CallToolResul
   };
 }
 
+async function searchPatches(args: Record<string, unknown>): Promise<CallToolResult> {
+  const query = (args.query as string).toLowerCase();
+  const serviceFilter = args.service as string | undefined;
+
+  const sources: Array<{ label: string; path: string }> = [
+    { label: "open", path: PATCH_INDEX },
+    { label: "archive", path: PATCH_ARCHIVE },
+  ];
+
+  const matches: Array<{
+    id: string;
+    source: string;
+    service: string;
+    summary: string;
+    priority: string;
+    category: string;
+    status: string;
+    created: string;
+    tags: string[];
+  }> = [];
+
+  for (const src of sources) {
+    let index: PatchIndex;
+    try {
+      index = await readIndex<PatchIndex>(src.path);
+    } catch {
+      continue;
+    }
+
+    for (const [id, entry] of Object.entries(index.patches)) {
+      if (serviceFilter && entry.service !== serviceFilter) continue;
+
+      const searchable = [
+        entry.summary,
+        entry.service,
+        entry.category,
+        entry.failure_class ?? "",
+        ...entry.tags,
+      ]
+        .join(" ")
+        .toLowerCase();
+
+      if (searchable.includes(query)) {
+        matches.push({
+          id,
+          source: src.label,
+          service: entry.service,
+          summary: entry.summary,
+          priority: entry.priority,
+          category: entry.category,
+          status: entry.status,
+          created: entry.created,
+          tags: entry.tags,
+        });
+      }
+    }
+  }
+
+  return {
+    content: [{
+      type: "text",
+      text: JSON.stringify({ query, matches_found: matches.length, matches }, null, 2),
+    }],
+  };
+}
+
 async function updatePatchStatus(args: Record<string, unknown>): Promise<CallToolResult> {
   const id = args.id as string;
   const newStatus = args.new_status as "applied" | "verified";
@@ -322,6 +401,7 @@ export async function handleCall(name: string, args: Record<string, unknown>): P
   switch (name) {
     case "list_patches": return listPatches(args);
     case "view_patch": return viewPatch(args);
+    case "search_patches": return searchPatches(args);
     case "create_patch": return createPatch(args);
     case "update_patch_status": return updatePatchStatus(args);
     default:

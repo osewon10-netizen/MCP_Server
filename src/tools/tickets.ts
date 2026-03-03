@@ -64,6 +64,19 @@ export const tools: Tool[] = [
     },
   },
   {
+    name: "search_tickets",
+    description:
+      "Search tickets by keyword across both open index and archive. Returns matching summaries without loading full archive into context.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "Keyword to search (matched against summary, tags, service, failure_class)" },
+        service: { type: "string", description: "Optional: also filter by service" },
+      },
+      required: ["query"],
+    },
+  },
+  {
     name: "update_ticket_status",
     description: "Advance a ticket's status. Transitions: open → patched → resolved. Renames file and updates/archives index entry.",
     inputSchema: {
@@ -206,6 +219,70 @@ async function createTicket(args: Record<string, unknown>): Promise<CallToolResu
   };
 }
 
+async function searchTickets(args: Record<string, unknown>): Promise<CallToolResult> {
+  const query = (args.query as string).toLowerCase();
+  const serviceFilter = args.service as string | undefined;
+
+  // Search both open index and archive
+  const sources: Array<{ label: string; path: string }> = [
+    { label: "open", path: TICKET_INDEX },
+    { label: "archive", path: TICKET_ARCHIVE },
+  ];
+
+  const matches: Array<{
+    id: string;
+    source: string;
+    service: string;
+    summary: string;
+    severity: string;
+    status: string;
+    created: string;
+    tags: string[];
+  }> = [];
+
+  for (const src of sources) {
+    let index: TicketIndex;
+    try {
+      index = await readIndex<TicketIndex>(src.path);
+    } catch {
+      continue; // archive may not exist yet
+    }
+
+    for (const [id, entry] of Object.entries(index.tickets)) {
+      if (serviceFilter && entry.service !== serviceFilter) continue;
+
+      const searchable = [
+        entry.summary,
+        entry.service,
+        entry.failure_class ?? "",
+        ...entry.tags,
+      ]
+        .join(" ")
+        .toLowerCase();
+
+      if (searchable.includes(query)) {
+        matches.push({
+          id,
+          source: src.label,
+          service: entry.service,
+          summary: entry.summary,
+          severity: entry.severity,
+          status: entry.status,
+          created: entry.created,
+          tags: entry.tags,
+        });
+      }
+    }
+  }
+
+  return {
+    content: [{
+      type: "text",
+      text: JSON.stringify({ query, matches_found: matches.length, matches }, null, 2),
+    }],
+  };
+}
+
 async function updateTicketStatus(args: Record<string, unknown>): Promise<CallToolResult> {
   const id = args.id as string;
   const newStatus = args.new_status as "patched" | "resolved";
@@ -312,6 +389,7 @@ export async function handleCall(name: string, args: Record<string, unknown>): P
   switch (name) {
     case "list_tickets": return listTickets(args);
     case "view_ticket": return viewTicket(args);
+    case "search_tickets": return searchTickets(args);
     case "create_ticket": return createTicket(args);
     case "update_ticket_status": return updateTicketStatus(args);
     default:
