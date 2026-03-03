@@ -99,6 +99,22 @@ export const tools: Tool[] = [
       required: ["id", "new_status"],
     },
   },
+  {
+    name: "archive_patch",
+    description:
+      "Full close workflow: fill verification section, rename, move to verified/, archive index entry, remove from open index. Patch must be in 'applied' status.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: { type: "string", description: "Patch ID, e.g. PA-069" },
+        verified_by: { type: "string", description: "Who verified (agent name or user)" },
+        deployed: { type: "boolean", description: "Was the patch deployed?" },
+        health_check: { type: "string", description: "Health check result summary" },
+        outcome: { type: "string", enum: ["fixed", "mitigated", "false_positive", "wont_fix", "needs_followup"] },
+      },
+      required: ["id", "verified_by"],
+    },
+  },
 ];
 
 // ─── Handlers ───────────────────────────────────────────────────────
@@ -395,6 +411,81 @@ async function updatePatchStatus(args: Record<string, unknown>): Promise<CallToo
   return { content: [{ type: "text", text: "Unhandled status" }], isError: true };
 }
 
+async function archivePatch(args: Record<string, unknown>): Promise<CallToolResult> {
+  const id = args.id as string;
+  const verifiedBy = args.verified_by as string;
+  const deployed = (args.deployed as boolean) ?? true;
+  const healthCheck = (args.health_check as string) ?? "not checked";
+  const outcome = (args.outcome as PatchEntry["outcome"]) ?? "fixed";
+
+  const index = await readIndex<PatchIndex>(PATCH_INDEX);
+  const entry = index.patches[id];
+  if (!entry) {
+    return { content: [{ type: "text", text: `Patch ${id} not found in index` }], isError: true };
+  }
+  if (entry.status !== "applied") {
+    return {
+      content: [{ type: "text", text: `Patch ${id} must be in 'applied' status to archive (current: ${entry.status})` }],
+      isError: true,
+    };
+  }
+
+  const now = new Date().toISOString();
+  const today = now.slice(0, 10);
+  const oldFilePath = path.join(PATCH_DIR, entry.file);
+
+  // Fill verification section in markdown
+  try {
+    let content = await fs.readFile(oldFilePath, "utf-8");
+    content = content
+      .replace(/\*\*Verified by:\*\*\s*/, `**Verified by:** ${verifiedBy}`)
+      .replace(/\*\*Deployed:\*\*\s*/, `**Deployed:** ${deployed ? "yes" : "no"}`)
+      .replace(/\*\*Health check:\*\*\s*/, `**Health check:** ${healthCheck}`)
+      .replace(/\*\*Outcome:\*\*\s*/, `**Outcome:** ${outcome}`)
+      .replace(/\*\*Verified at:\*\*\s*/, `**Verified at:** ${now}`);
+    await fs.writeFile(oldFilePath, content, "utf-8");
+  } catch {
+    // If we can't update content, continue with the archive anyway
+  }
+
+  // Move to verified
+  await fs.mkdir(PATCH_VERIFIED_DIR, { recursive: true });
+  const basename = path.basename(entry.file, ".applied.md");
+  const newFilename = `${basename}.applied.verified.md`;
+  const newFilePath = path.join(PATCH_VERIFIED_DIR, newFilename);
+  await fs.rename(oldFilePath, newFilePath);
+
+  // Archive entry
+  const verifiedEntry: PatchEntry = {
+    ...entry,
+    file: path.join("verified", newFilename),
+    status: "verified",
+    outcome,
+    verified: today,
+    verified_by: verifiedBy,
+  };
+
+  let archive: PatchIndex;
+  try {
+    archive = await readIndex<PatchIndex>(PATCH_ARCHIVE);
+  } catch {
+    archive = { next_id: 0, patches: {} };
+  }
+  archive.patches[id] = verifiedEntry;
+  await writeIndex(PATCH_ARCHIVE, archive);
+
+  // Remove from open index
+  const { [id]: _removed, ...remainingPatches } = index.patches;
+  await writeIndex(PATCH_INDEX, { ...index, patches: remainingPatches });
+
+  return {
+    content: [{
+      type: "text",
+      text: JSON.stringify({ success: true, id, new_file: verifiedEntry.file, outcome }),
+    }],
+  };
+}
+
 // ─── Dispatch ───────────────────────────────────────────────────────
 
 export async function handleCall(name: string, args: Record<string, unknown>): Promise<CallToolResult> {
@@ -404,6 +495,7 @@ export async function handleCall(name: string, args: Record<string, unknown>): P
     case "search_patches": return searchPatches(args);
     case "create_patch": return createPatch(args);
     case "update_patch_status": return updatePatchStatus(args);
+    case "archive_patch": return archivePatch(args);
     default:
       return { content: [{ type: "text", text: `Unknown tool: ${name}` }], isError: true };
   }

@@ -113,3 +113,15 @@ export interface ContextEntry {
   updatedAt: string;
   updatedBy: string;
 }
+
+// === Network Metrics ===
+
+export interface NetworkSample {
+  timestamp: string;
+  target: string;
+  latency_ms: number;
+  jitter_ms: number;
+  packet_loss_pct: number;
+  min_ms: number;
+  max_ms: number;
+}

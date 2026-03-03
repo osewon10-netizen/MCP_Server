@@ -20,6 +20,9 @@ import * as memoryMod from "./tools/memory.js";
 import * as gitMod from "./tools/git.js";
 import * as ollamaMod from "./tools/ollama.js";
 import * as wrappersMod from "./tools/wrappers.js";
+import * as overviewMod from "./tools/overview.js";
+import * as filesMod from "./tools/files.js";
+import * as networkMod from "./tools/network.js";
 
 type ToolHandler = (name: string, args: Record<string, unknown>) => Promise<CallToolResult>;
 
@@ -43,6 +46,9 @@ const toolModules: ToolModule[] = [
   gitMod,
   ollamaMod,
   wrappersMod,
+  overviewMod,
+  filesMod,
+  networkMod,
 ];
 
 function getAllToolDefinitions(): Tool[] {

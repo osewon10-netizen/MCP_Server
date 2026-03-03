@@ -55,6 +55,31 @@ export const tools: Tool[] = [
       properties: {},
     },
   },
+  {
+    name: "tail_service_url",
+    description:
+      "HTTP health check any URL with configurable timeout. Returns status code, response time, content type, and body preview.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        url: { type: "string", description: "Full URL to probe, e.g. http://127.0.0.1:3000/health" },
+        timeout_ms: { type: "number", description: "Timeout in ms (default 5000)" },
+      },
+      required: ["url"],
+    },
+  },
+  {
+    name: "pm2_restart",
+    description:
+      "Restart a PM2 process by name with post-restart health poll. Bypasses MANTIS runner (no confirmation needed).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        service: { type: "string", description: "PM2 process name, e.g. mini-mart, hobby_bot" },
+      },
+      required: ["service"],
+    },
+  },
 ];
 
 // Uses PM2 CLI directly (not MANTIS proxy) for raw, live process data.
@@ -152,6 +177,93 @@ async function mantisHealth(): Promise<CallToolResult> {
   };
 }
 
+async function tailServiceUrl(args: Record<string, unknown>): Promise<CallToolResult> {
+  const url = args.url as string;
+  const timeoutMs = (args.timeout_ms as number) ?? 5000;
+
+  // Validate URL
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return { content: [{ type: "text", text: `Invalid URL: ${url}` }], isError: true };
+  }
+  if (parsed.protocol === "file:") {
+    return { content: [{ type: "text", text: "file:// URLs are not allowed" }], isError: true };
+  }
+
+  const start = performance.now();
+  try {
+    const res = await fetch(url, { signal: AbortSignal.timeout(timeoutMs) });
+    const elapsed = Math.round(performance.now() - start);
+    const contentType = res.headers.get("content-type") ?? "unknown";
+    const body = await res.text();
+    const preview = body.length > 1000 ? body.slice(0, 1000) + "…" : body;
+
+    return {
+      content: [{
+        type: "text",
+        text: JSON.stringify({
+          status: res.status,
+          ok: res.ok,
+          response_time_ms: elapsed,
+          content_type: contentType,
+          body_preview: preview,
+        }, null, 2),
+      }],
+    };
+  } catch (err: unknown) {
+    const elapsed = Math.round(performance.now() - start);
+    const msg = err instanceof Error ? err.message : String(err);
+    return {
+      content: [{
+        type: "text",
+        text: JSON.stringify({ status: 0, ok: false, response_time_ms: elapsed, error: msg }, null, 2),
+      }],
+    };
+  }
+}
+
+async function pm2Restart(args: Record<string, unknown>): Promise<CallToolResult> {
+  const service = args.service as string;
+  const start = performance.now();
+
+  try {
+    await execFileAsync("pm2", ["restart", service, "--update-env"], { timeout: 30000 });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return { content: [{ type: "text", text: `PM2 restart failed: ${msg}` }], isError: true };
+  }
+
+  // Poll for online status
+  let finalStatus = "unknown";
+  for (let i = 0; i < 15; i++) {
+    await new Promise((r) => setTimeout(r, 1000));
+    try {
+      const processes = await pm2List();
+      const proc = processes.find((p) => p.name === service);
+      if (proc) {
+        finalStatus = proc.status;
+        if (proc.status === "online") break;
+      }
+    } catch {
+      // ignore poll errors
+    }
+  }
+
+  const elapsed = Math.round(performance.now() - start);
+  return {
+    content: [{
+      type: "text",
+      text: JSON.stringify({
+        success: finalStatus === "online",
+        status: finalStatus,
+        elapsed_ms: elapsed,
+      }, null, 2),
+    }],
+  };
+}
+
 export async function handleCall(name: string, args: Record<string, unknown>): Promise<CallToolResult> {
   switch (name) {
     case "pm2_status": return pm2Status(args);
@@ -159,6 +271,8 @@ export async function handleCall(name: string, args: Record<string, unknown>): P
     case "disk_usage": return diskUsage();
     case "backup_status": return backupStatus();
     case "mantis_health": return mantisHealth();
+    case "tail_service_url": return tailServiceUrl(args);
+    case "pm2_restart": return pm2Restart(args);
     default:
       return { content: [{ type: "text", text: `Unknown tool: ${name}` }], isError: true };
   }

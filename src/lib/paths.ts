@@ -2,7 +2,7 @@ import path from "node:path";
 
 // Base paths on Mac Mini
 const SERVER_ROOT = "/Users/minmac.serv/server";
-const AGENT_WORKSPACE = `${SERVER_ROOT}/agent/workspace`;
+export const AGENT_WORKSPACE = `${SERVER_ROOT}/agent/workspace`;
 
 // Ticket system
 export const TICKET_DIR = `${AGENT_WORKSPACE}/tickets/tickets`;
@@ -35,6 +35,9 @@ export const BACKUP_DIR = `${SERVER_ROOT}/backups`;
 
 // Ops/deploy wrapper scripts (symlink: agent/wrappers → mantis/scripts)
 export const WRAPPERS_DIR = `${SERVER_ROOT}/agent/wrappers`;
+
+// Metrics (time-series data, JSONL files)
+export const METRICS_DIR = `${AGENT_WORKSPACE}/metrics`;
 
 // MANTIS
 export const MANTIS_TRPC_URL = "http://localhost:3200/api/trpc";

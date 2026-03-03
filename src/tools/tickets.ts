@@ -90,6 +90,22 @@ export const tools: Tool[] = [
       required: ["id", "new_status"],
     },
   },
+  {
+    name: "archive_ticket",
+    description:
+      "Full close workflow: fill verification section, rename, move to resolved/, archive index entry, remove from open index. Ticket must be in 'patched' status.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: { type: "string", description: "Ticket ID, e.g. TK-049" },
+        verified_by: { type: "string", description: "Who verified (agent name or user)" },
+        deployed: { type: "boolean", description: "Was the fix deployed?" },
+        health_check: { type: "string", description: "Health check result summary" },
+        outcome: { type: "string", enum: ["fixed", "mitigated", "false_positive", "wont_fix", "needs_followup"] },
+      },
+      required: ["id", "verified_by"],
+    },
+  },
 ];
 
 // ─── Handlers ───────────────────────────────────────────────────────
@@ -383,6 +399,78 @@ async function updateTicketStatus(args: Record<string, unknown>): Promise<CallTo
   return { content: [{ type: "text", text: "Unhandled status" }], isError: true };
 }
 
+async function archiveTicket(args: Record<string, unknown>): Promise<CallToolResult> {
+  const id = args.id as string;
+  const verifiedBy = args.verified_by as string;
+  const deployed = (args.deployed as boolean) ?? true;
+  const healthCheck = (args.health_check as string) ?? "not checked";
+  const outcome = (args.outcome as TicketEntry["outcome"]) ?? "fixed";
+
+  const index = await readIndex<TicketIndex>(TICKET_INDEX);
+  const entry = index.tickets[id];
+  if (!entry) {
+    return { content: [{ type: "text", text: `Ticket ${id} not found in index` }], isError: true };
+  }
+  if (entry.status !== "patched") {
+    return {
+      content: [{ type: "text", text: `Ticket ${id} must be in 'patched' status to archive (current: ${entry.status})` }],
+      isError: true,
+    };
+  }
+
+  const now = new Date().toISOString();
+  const oldFilePath = path.join(TICKET_DIR, entry.file);
+
+  // Fill verification section in markdown
+  try {
+    let content = await fs.readFile(oldFilePath, "utf-8");
+    content = content
+      .replace(/\*\*Verified by:\*\*\s*/, `**Verified by:** ${verifiedBy}`)
+      .replace(/\*\*Deployed:\*\*\s*/, `**Deployed:** ${deployed ? "yes" : "no"}`)
+      .replace(/\*\*Health check:\*\*\s*/, `**Health check:** ${healthCheck}`)
+      .replace(/\*\*Outcome:\*\*\s*/, `**Outcome:** ${outcome}`)
+      .replace(/\*\*Verified at:\*\*\s*/, `**Verified at:** ${now}`);
+    await fs.writeFile(oldFilePath, content, "utf-8");
+  } catch {
+    // If we can't update content, continue with the archive anyway
+  }
+
+  // Move to resolved
+  await fs.mkdir(TICKET_RESOLVED_DIR, { recursive: true });
+  const basename = path.basename(entry.file, ".patched.md");
+  const newFilename = `${basename}.patched.resolved.md`;
+  const newFilePath = path.join(TICKET_RESOLVED_DIR, newFilename);
+  await fs.rename(oldFilePath, newFilePath);
+
+  // Archive entry
+  const resolvedEntry: TicketEntry = {
+    ...entry,
+    file: path.join("resolved", newFilename),
+    status: "resolved",
+    outcome,
+  };
+
+  let archive: TicketIndex;
+  try {
+    archive = await readIndex<TicketIndex>(TICKET_ARCHIVE);
+  } catch {
+    archive = { next_id: 0, tickets: {} };
+  }
+  archive.tickets[id] = resolvedEntry;
+  await writeIndex(TICKET_ARCHIVE, archive);
+
+  // Remove from open index
+  const { [id]: _removed, ...remainingTickets } = index.tickets;
+  await writeIndex(TICKET_INDEX, { ...index, tickets: remainingTickets });
+
+  return {
+    content: [{
+      type: "text",
+      text: JSON.stringify({ success: true, id, new_file: resolvedEntry.file, outcome }),
+    }],
+  };
+}
+
 // ─── Dispatch ───────────────────────────────────────────────────────
 
 export async function handleCall(name: string, args: Record<string, unknown>): Promise<CallToolResult> {
@@ -392,6 +480,7 @@ export async function handleCall(name: string, args: Record<string, unknown>): P
     case "search_tickets": return searchTickets(args);
     case "create_ticket": return createTicket(args);
     case "update_ticket_status": return updateTicketStatus(args);
+    case "archive_ticket": return archiveTicket(args);
     default:
       return { content: [{ type: "text", text: `Unknown tool: ${name}` }], isError: true };
   }
