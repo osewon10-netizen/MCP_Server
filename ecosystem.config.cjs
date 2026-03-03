@@ -2,7 +2,7 @@ module.exports = {
   apps: [{
     name: "mini-mart",
     script: "build/index.js",
-    cwd: "/Users/minmac.serv/server/mini_cp_server",
+    cwd: "/Users/minmac.serv/server/mini_mart",
     interpreter: "node",
     env: {
       NODE_ENV: "production",

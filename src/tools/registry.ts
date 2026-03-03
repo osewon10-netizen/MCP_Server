@@ -32,10 +32,10 @@ const SERVICES: ServiceInfo[] = [
     checklistFile: "AI_Agent_Code_Review_Checklist.md",
   },
   {
-    name: "server_ops",
+    name: "mantis",
     displayName: "MANTIS (Server Ops)",
     stack: "Bun monorepo, bun:sqlite, Drizzle, NATS, tRPC 11, Next.js 15",
-    repoPath: "/Users/minmac.serv/server/server_ops",
+    repoPath: "/Users/minmac.serv/server/mantis",
     pm2Name: "cp-app",
     port: 3200,
     hasAgentsMd: true,
@@ -45,7 +45,7 @@ const SERVICES: ServiceInfo[] = [
     name: "mini_mart",
     displayName: "Mini Mart (Agent Tooling)",
     stack: "Node.js, TypeScript, MCP SDK",
-    repoPath: "/Users/minmac.serv/server/mini_cp_server",
+    repoPath: "/Users/minmac.serv/server/mini_mart",
     pm2Name: "mini-mart",
     port: 6974,
     hasAgentsMd: true,
@@ -60,7 +60,7 @@ export const tools: Tool[] = [
     inputSchema: {
       type: "object",
       properties: {
-        service: { type: "string", description: "Service name (e.g. hobby_bot, maggots, sillage, server_ops, mini_mart)" },
+        service: { type: "string", description: "Service name (e.g. hobby_bot, maggots, sillage, mantis, mini_mart)" },
       },
     },
   },
