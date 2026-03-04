@@ -35,10 +35,54 @@ export const tools: Tool[] = [
   },
 ];
 
+interface CronJob {
+  schedule: string;
+  rawSchedule: string;
+  scriptName: string;
+  service: string | null;
+  type: string | null;
+  group: string | null;
+  logFile: string | null;
+}
+
+// Fix MANTIS schedule parser bugs for interval-style cron expressions.
+// MANTIS only handles H M patterns — step intervals like "*/30 * * * *" produce "Daily NaN:*/30 PM".
+function fixCronEntry(job: CronJob): CronJob {
+  const raw = job.rawSchedule ?? "";
+  const parts = raw.trim().split(/\s+/);
+  if (parts.length !== 5) return job;
+
+  const [min, hour, dom, month, dow] = parts;
+
+  // */N * * * * — every N minutes
+  const everyMinMatch = min.match(/^\*\/(\d+)$/);
+  if (everyMinMatch && hour === "*" && dom === "*" && month === "*" && dow === "*") {
+    const n = parseInt(everyMinMatch[1], 10);
+    const schedule = n === 1 ? "Every minute" : `Every ${n} min`;
+
+    // Infer a better scriptName from logFile if MANTIS gave us "pm2"
+    let scriptName = job.scriptName;
+    if (scriptName === "pm2" && job.logFile) {
+      const logBase = job.logFile.replace(/.*\//, "").replace(/\.log$/, "");
+      scriptName = logBase || scriptName;
+    }
+
+    return {
+      ...job,
+      schedule,
+      scriptName,
+      group: job.group ?? "OC Orchestrator",
+    };
+  }
+
+  return job;
+}
+
 async function listCrons(): Promise<CallToolResult> {
   try {
-    const data = await mantisQuery("rules.cronJobs");
-    return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
+    const data = await mantisQuery<CronJob[]>("rules.cronJobs");
+    const normalized = Array.isArray(data) ? data.map(fixCronEntry) : data;
+    return { content: [{ type: "text", text: JSON.stringify(normalized, null, 2) }] };
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     return { content: [{ type: "text", text: `MANTIS error: ${msg}` }], isError: true };
