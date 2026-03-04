@@ -9,7 +9,7 @@ import {
   generateSlug,
 } from "../lib/index-manager.js";
 import { normalizeTags } from "../lib/tag-normalizer.js";
-import { validateFailureClass } from "../lib/failure-validator.js";
+import { validateFailureClass, validateAssignedTo } from "../lib/failure-validator.js";
 import { searchPatchArchive, appendPatchArchive, lookupPatchArchive } from "../lib/archive.js";
 import type { PatchIndex, PatchEntry } from "../types.js";
 
@@ -252,6 +252,16 @@ async function createPatch(args: Record<string, unknown>): Promise<CallToolResul
   const assignedTo = args.assigned_to as string | undefined;
   const author = args.author as string;
 
+  // Validate assigned_to if provided
+  let assignedToWarning: string | undefined;
+  if (assignedTo) {
+    const atResult = validateAssignedTo(assignedTo);
+    if (!atResult.valid) {
+      return { content: [{ type: "text", text: atResult.error! }], isError: true };
+    }
+    assignedToWarning = atResult.warning;
+  }
+
   // Validate failure_class if provided
   if (failureClassRaw) {
     const { valid, suggestions } = await validateFailureClass(failureClassRaw);
@@ -299,14 +309,20 @@ async function createPatch(args: Record<string, unknown>): Promise<CallToolResul
   };
   await writeIndex(PATCH_INDEX, updatedIndex);
 
-  const warnings = unknownTags.length > 0
-    ? `\nWarning: unknown tags passed through: ${unknownTags.join(", ")}`
-    : "";
+  const warnings: string[] = [];
+  if (unknownTags.length > 0) warnings.push(`unknown tags passed through: ${unknownTags.join(", ")}`);
+  if (assignedToWarning) warnings.push(assignedToWarning);
 
   return {
     content: [{
       type: "text",
-      text: JSON.stringify({ id, slug, tags, assigned_to: newEntry.assigned_to }) + warnings,
+      text: JSON.stringify({
+        id,
+        slug,
+        tags,
+        assigned_to: newEntry.assigned_to,
+        ...(warnings.length > 0 ? { warnings } : {}),
+      }),
     }],
   };
 }
@@ -559,6 +575,11 @@ async function assignPatch(args: Record<string, unknown>): Promise<CallToolResul
   const assignedTo = args.assigned_to as string;
   const handoffNote = args.handoff_note as string | undefined;
 
+  const atResult = validateAssignedTo(assignedTo);
+  if (!atResult.valid) {
+    return { content: [{ type: "text", text: atResult.error! }], isError: true };
+  }
+
   const index = await readIndex<PatchIndex>(PATCH_INDEX);
   const entry = index.patches[id];
   if (!entry) {
@@ -588,6 +609,7 @@ async function assignPatch(args: Record<string, unknown>): Promise<CallToolResul
         assigned_to: assignedTo,
         reassigned: isReassign,
         handoff_count: entry.handoff_count ?? 0,
+        ...(atResult.warning ? { warning: atResult.warning } : {}),
       }),
     }],
   };

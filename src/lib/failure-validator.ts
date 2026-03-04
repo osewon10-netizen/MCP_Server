@@ -30,3 +30,40 @@ export async function validateFailureClass(
 
   return { valid: false, suggestions: suggestions.length > 0 ? suggestions : undefined };
 }
+
+/**
+ * Validate an assigned_to string against the agent naming convention.
+ * Format: {side}.{service}.{model}
+ *   side:    dev | mini
+ *   service: any word chars (matches service registry names)
+ *   model:   opus | sonnet | codex
+ * Shorthands: bare "mini" is valid. "dev.minimart" (no model) is a soft warning.
+ *
+ * Returns { valid, warning?, suggestion? }
+ */
+export function validateAssignedTo(
+  value: string
+): { valid: boolean; warning?: string; suggestion?: string; error?: string } {
+  // Strict format
+  const strict = /^(dev\.\w+\.(opus|sonnet|codex)|mini(\.\w+\.(opus|sonnet))?)$/;
+  if (strict.test(value)) return { valid: true };
+
+  // Bare "mini" shorthand
+  if (value === "mini") return { valid: true };
+
+  // Soft case: dev.{service} with no model — accept with warning
+  const devNoModel = /^dev\.(\w+)$/.exec(value);
+  if (devNoModel) {
+    const suggestion = `${value}.sonnet`;
+    return {
+      valid: true,
+      warning: `assigned_to "${value}" is missing model tier. Did you mean "${suggestion}"?`,
+      suggestion,
+    };
+  }
+
+  return {
+    valid: false,
+    error: `Invalid assigned_to "${value}". Expected format: dev.<service>.<model> or mini[.<service>.<model>]. Valid models: opus, sonnet, codex. Examples: dev.minimart.sonnet, mini, mini.minimart.sonnet`,
+  };
+}

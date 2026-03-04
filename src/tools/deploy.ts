@@ -1,7 +1,11 @@
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import type { Tool, CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { mantisQuery, mantisMutation } from "../lib/mantis-client.js";
 import { SERVICE_REPOS } from "../lib/paths.js";
 import type { MantisServiceState, MantisRunnerResult } from "../types.js";
+
+const execFileAsync = promisify(execFile);
 
 function validateService(service: unknown): CallToolResult | null {
   if (typeof service !== "string" || !service) {
@@ -51,12 +55,30 @@ export const tools: Tool[] = [
   },
 ];
 
+async function getIncomingCommits(repoPath: string): Promise<string[] | null> {
+  try {
+    // Fetch quietly, then log commits not yet on HEAD
+    await execFileAsync("git", ["fetch", "--quiet"], { cwd: repoPath, timeout: 15000 });
+    const { stdout } = await execFileAsync(
+      "git", ["log", "HEAD..origin/HEAD", "--oneline", "--no-merges"],
+      { cwd: repoPath, timeout: 10000 }
+    );
+    const lines = stdout.trim().split("\n").filter(Boolean);
+    return lines;
+  } catch {
+    return null;
+  }
+}
+
 async function deployStatus(args: Record<string, unknown>): Promise<CallToolResult> {
   const err = validateService(args.service);
   if (err) return err;
   const service = args.service as string;
   try {
-    const state = await mantisQuery<MantisServiceState | null>("services.byName", { service });
+    const [state, incoming] = await Promise.all([
+      mantisQuery<MantisServiceState | null>("services.byName", { service }),
+      getIncomingCommits(SERVICE_REPOS[service]),
+    ]);
     if (!state) {
       return { content: [{ type: "text", text: `MANTIS has no health record for "${service}" — watchdog may not be tracking it yet.` }], isError: true };
     }
@@ -66,6 +88,7 @@ async function deployStatus(args: Record<string, unknown>): Promise<CallToolResu
       pm2Status: state.pm2Status,
       commitsBehind: state.commitsBehind,
       lastCheck: state.lastCheck,
+      incomingCommits: incoming,
     };
     return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
   } catch (err: unknown) {
