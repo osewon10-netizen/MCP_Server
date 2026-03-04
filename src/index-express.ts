@@ -32,6 +32,8 @@ const ALLOWED_TOOLS = [
   "lookup_tags",           // ticket_enrich task (read-only)
   "validate_failure_class",// ticket_enrich task (read-only)
   "get_ticketing_guide",   // ticket_enrich context (read-only)
+  "archive_oc_task",       // OC task archive (runner calls after completion)
+  "list_oc_archive",       // OC archive search (read-only)
 ] as const;
 
 const ALLOWED_SET = new Set<string>(ALLOWED_TOOLS);

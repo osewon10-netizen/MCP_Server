@@ -2,7 +2,7 @@
 
 ## 1. Identity
 
-**What:** MCP (Model Context Protocol) server exposing 59 structured tools over HTTP for multi-agent ops across 4 service repos on Mini. Also runs a scoped instance (`minimart_express`) on port 6975 with 26 tools for the local Ollama agent.
+**What:** MCP (Model Context Protocol) server exposing 61 structured tools over HTTP for multi-agent ops across 4 service repos on Mini. Also runs a scoped instance (`minimart_express`) on port 6975 with 28 tools for the local Ollama agent.
 
 **Who uses it:** Claude Code (Opus/Sonnet), Codex, Gemini CLI, OpenClaw — any agent that speaks MCP over HTTP.
 
@@ -37,7 +37,7 @@ mini_cp_server/
 │
 ├── src/
 │   ├── index.ts              # HTTP entry — POST /mcp, GET /health (port 6974)
-│   ├── index-express.ts      # Scoped HTTP entry — 26 tools, localhost:6975, concurrency guard
+│   ├── index-express.ts      # Scoped HTTP entry — 28 tools, localhost:6975, concurrency guard
 │   ├── server.ts             # MCP server factory — registers 20 tool modules, optional allowlist
 │   ├── types.ts              # All shared interfaces (Ticket, Patch, MANTIS, etc.)
 │   │
@@ -71,7 +71,7 @@ mini_cp_server/
 │       ├── training.ts       # 1 tool: export_training_data (archive → JSONL training records)
 │       ├── files.ts          # 2 tools: file_read, file_write (scoped to agent/workspace/)
 │       ├── network.ts        # 1 tool: network_quality (time-series metrics)
-│       ├── oc.ts             # 4 tools: create_oc_task, list_oc_tasks, view_oc_task, update_oc_task
+│       ├── oc.ts             # 6 tools: create/list/view/update_oc_task, archive_oc_task, list_oc_archive
 │       └── task-config.ts    # 1 tool: get_task_config (task type registry + prompt loader)
 │
 └── build/                    # Compiled JS output (gitignored)
@@ -108,7 +108,7 @@ Agent (any machine)
 
 **Stateless design:** Each POST /mcp creates a fresh MCP server + transport. No sessions, no state between requests. This is deliberate — the server is a tool bridge, not an application.
 
-## 5. Tool Registry (59 tools)
+## 5. Tool Registry (61 tools)
 
 ### Ticketing & Handoffs (23 tools)
 | Tool | Module | What It Does |
@@ -228,13 +228,15 @@ Agent (any machine)
 |------|--------|-------------|
 | `network_quality` | network.ts | Measure latency/jitter/packet loss, record as JSONL time-series |
 
-### OC Tasks (5 tools)
+### OC Tasks (7 tools)
 | Tool | Module | What It Does |
 |------|--------|-------------|
 | `create_oc_task` | oc.ts | Create an OC (Ollama Churns) task — allocates OC-XXX ID, validates task_type against registry |
 | `list_oc_tasks` | oc.ts | List OC tasks, filter by status or task_type |
 | `view_oc_task` | oc.ts | View a single OC task by ID |
 | `update_oc_task` | oc.ts | Update OC task fields, auto-sets completed_at |
+| `archive_oc_task` | oc.ts | Move completed task from index → monthly JSONL archive (tasks/archive/YYYY-MM.jsonl) |
+| `list_oc_archive` | oc.ts | Search archived OC tasks by month, task_type, service (most recent first, limit 50) |
 | `get_task_config` | task-config.ts | Get execution config + prompt template for an OC task type. Omit task_type for full registry |
 
 ## 6. Mini Server Filesystem
@@ -506,10 +508,10 @@ A second MCP server instance for the local Ollama agent (Qwen3 4B). Same codebas
 | Port | 6975, localhost only (`127.0.0.1`) |
 | PM2 process | `minimart_express` |
 | Workspace | `/server/agent/ollama/` (via `MINIMART_FILE_WORKSPACE` env var) |
-| Tools | 26 (read-only + file ops + OC task CRUD + task config + ticket/patch reads, scoped to ollama workspace) |
+| Tools | 28 (read-only + file ops + OC task CRUD/archive + task config + ticket/patch reads, scoped to ollama workspace) |
 | Concurrency | Max 4 concurrent requests (429 if exceeded) |
 
-**Allowed tools:** `file_read`, `file_write`, `ollama_generate`, `ollama_models`, `service_logs`, `search_logs`, `pm2_status`, `backup_status`, `service_health`, `disk_usage`, `git_log`, `git_diff`, `git_status`, `service_registry`, `get_checklist`, `create_oc_task`, `list_oc_tasks`, `view_oc_task`, `update_oc_task`, `get_task_config`, `list_tickets`, `list_patches`, `export_training_data`, `lookup_tags`, `validate_failure_class`, `get_ticketing_guide`
+**Allowed tools:** `file_read`, `file_write`, `ollama_generate`, `ollama_models`, `service_logs`, `search_logs`, `pm2_status`, `backup_status`, `service_health`, `disk_usage`, `git_log`, `git_diff`, `git_status`, `service_registry`, `get_checklist`, `create_oc_task`, `list_oc_tasks`, `view_oc_task`, `update_oc_task`, `get_task_config`, `list_tickets`, `list_patches`, `export_training_data`, `lookup_tags`, `validate_failure_class`, `get_ticketing_guide`, `archive_oc_task`, `list_oc_archive`
 
 **Blocked:** Ticket/patch create/update/archive/assign, deploy, rollback, pm2_restart, run_wrapper, mantis mutations, set_context, get_context, overview tools, network_quality, cron tools
 

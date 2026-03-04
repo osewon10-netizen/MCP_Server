@@ -1,6 +1,8 @@
+import fs from "node:fs/promises";
+import path from "node:path";
 import type { Tool, CallToolResult } from "@modelcontextprotocol/sdk/types.js";
-import type { OcIndex } from "../types.js";
-import { OC_INDEX } from "../lib/paths.js";
+import type { OcIndex, OcTaskEntry } from "../types.js";
+import { OC_INDEX, OC_ARCHIVE_DIR } from "../lib/paths.js";
 import { readIndex, writeIndex, allocateOcId } from "../lib/index-manager.js";
 import { VALID_TASK_TYPES } from "../lib/task-registry.js";
 
@@ -55,6 +57,30 @@ export const tools: Tool[] = [
         notes: { type: "string", description: "Completion notes or error info" },
       },
       required: ["id"],
+    },
+  },
+  {
+    name: "archive_oc_task",
+    description: "Move a completed OC task from the live index to the monthly JSONL archive. Task must have status 'completed'.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: { type: "string", description: "OC task ID (e.g. OC-001)" },
+      },
+      required: ["id"],
+    },
+  },
+  {
+    name: "list_oc_archive",
+    description: "Search archived OC tasks. Reads monthly JSONL files (most recent first). Filter by month, task_type, or service.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        month: { type: "string", description: "Month filter in YYYY-MM format (e.g. 2026-03). Omit to search all months." },
+        task_type: { type: "string", description: "Filter by task_type" },
+        service: { type: "string", description: "Filter by service" },
+        limit: { type: "number", description: "Max results (default 50)" },
+      },
     },
   },
 ];
@@ -174,6 +200,112 @@ async function updateOcTask(args: Record<string, unknown>): Promise<CallToolResu
   };
 }
 
+// ─── Archive helpers ─────────────────────────────────────────────────
+
+interface OcArchiveLine {
+  id: string;
+  entry: OcTaskEntry;
+  archived_at: string;
+}
+
+async function archiveOcTask(args: Record<string, unknown>): Promise<CallToolResult> {
+  const id = args.id as string;
+
+  const index = await readIndex<OcIndex>(OC_INDEX);
+  const entry = index.tasks[id];
+  if (!entry) {
+    return { content: [{ type: "text", text: `OC task not found: ${id}` }], isError: true };
+  }
+  if (entry.status !== "completed") {
+    return {
+      content: [{ type: "text", text: `Task ${id} must be completed before archiving (current: ${entry.status})` }],
+      isError: true,
+    };
+  }
+
+  // Append to monthly JSONL
+  const month = new Date().toISOString().slice(0, 7); // "2026-03"
+  await fs.mkdir(OC_ARCHIVE_DIR, { recursive: true });
+  const archivePath = path.join(OC_ARCHIVE_DIR, `${month}.jsonl`);
+  const line: OcArchiveLine = { id, entry, archived_at: new Date().toISOString() };
+  await fs.appendFile(archivePath, JSON.stringify(line) + "\n", "utf-8");
+
+  // Remove from live index
+  delete index.tasks[id];
+  await writeIndex(OC_INDEX, index);
+
+  return {
+    content: [{ type: "text", text: JSON.stringify({ success: true, id, archived_to: `archive/${month}.jsonl` }, null, 2) }],
+  };
+}
+
+async function listOcArchive(args: Record<string, unknown>): Promise<CallToolResult> {
+  const monthFilter = args.month as string | undefined;
+  const typeFilter = args.task_type as string | undefined;
+  const serviceFilter = args.service as string | undefined;
+  const limit = (args.limit as number) ?? 50;
+
+  let files: string[];
+  if (monthFilter) {
+    files = [`${monthFilter}.jsonl`];
+  } else {
+    try {
+      const entries = await fs.readdir(OC_ARCHIVE_DIR);
+      files = entries.filter((f) => f.endsWith(".jsonl")).sort().reverse();
+    } catch {
+      return { content: [{ type: "text", text: "[]" }] };
+    }
+  }
+
+  const results: Array<{
+    id: string;
+    summary: string;
+    task_type: string;
+    service?: string;
+    completed_at?: string;
+    archived_at: string;
+  }> = [];
+
+  for (const file of files) {
+    const filePath = path.join(OC_ARCHIVE_DIR, file);
+    let raw: string;
+    try {
+      raw = await fs.readFile(filePath, "utf-8");
+    } catch {
+      continue;
+    }
+
+    for (const rawLine of raw.split("\n")) {
+      const trimmed = rawLine.trim();
+      if (!trimmed) continue;
+      let record: OcArchiveLine;
+      try {
+        record = JSON.parse(trimmed) as OcArchiveLine;
+      } catch {
+        continue; // skip malformed lines
+      }
+
+      if (typeFilter && record.entry.task_type !== typeFilter) continue;
+      if (serviceFilter && record.entry.service !== serviceFilter) continue;
+
+      results.push({
+        id: record.id,
+        summary: record.entry.summary,
+        task_type: record.entry.task_type,
+        service: record.entry.service,
+        completed_at: record.entry.completed_at,
+        archived_at: record.archived_at,
+      });
+      if (results.length >= limit) break;
+    }
+    if (results.length >= limit) break;
+  }
+
+  return {
+    content: [{ type: "text", text: JSON.stringify(results, null, 2) }],
+  };
+}
+
 // ─── Dispatch ───────────────────────────────────────────────────────
 
 export async function handleCall(name: string, args: Record<string, unknown>): Promise<CallToolResult> {
@@ -182,6 +314,8 @@ export async function handleCall(name: string, args: Record<string, unknown>): P
     case "list_oc_tasks": return listOcTasks(args);
     case "view_oc_task": return viewOcTask(args);
     case "update_oc_task": return updateOcTask(args);
+    case "archive_oc_task": return archiveOcTask(args);
+    case "list_oc_archive": return listOcArchive(args);
     default:
       return { content: [{ type: "text", text: `Unknown tool: ${name}` }], isError: true };
   }
