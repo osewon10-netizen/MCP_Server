@@ -125,10 +125,16 @@ async function serverOverview(): Promise<CallToolResult> {
   const backups = extractSettled(backupsResult) ?? {};
 
   // Watchdog (from MANTIS services.list)
-  const mantisServices = extractSettled(mantisResult);
+  // MANTIS may return a SuperJSON-wrapped payload { json: [...] } instead of a bare array
+  const mantisRaw = extractSettled(mantisResult);
+  const mantisServices = Array.isArray(mantisRaw)
+    ? mantisRaw
+    : Array.isArray((mantisRaw as any)?.json)
+    ? (mantisRaw as any).json
+    : null;
   let worstState = "unknown";
   const checks: Record<string, string> = {};
-  if (mantisServices) {
+  if (Array.isArray(mantisServices)) {
     for (const svc of mantisServices) {
       checks[svc.service] = svc.state;
       if (svc.state === "critical") worstState = "critical";
