@@ -11,10 +11,9 @@ export const TICKET_INDEX = path.join(TICKET_DIR, "index.json");
 export const PATCH_INDEX = path.join(PATCH_DIR, "index.json");
 export const TICKET_ARCHIVE = path.join(TICKET_DIR, "archive.jsonl");
 export const PATCH_ARCHIVE = path.join(PATCH_DIR, "archive.jsonl");
-export const TICKET_TEMPLATE = path.join(TICKET_DIR, "TEMPLATE.md");
-export const PATCH_TEMPLATE = path.join(PATCH_DIR, "TEMPLATE.md");
-export const TICKET_RESOLVED_DIR = path.join(TICKET_DIR, "resolved");
-export const PATCH_VERIFIED_DIR = path.join(PATCH_DIR, "verified");
+// Templates and resolved/verified dirs are legacy (markdown files no longer generated)
+// Kept as comments for reference:
+// TICKET_TEMPLATE, PATCH_TEMPLATE, TICKET_RESOLVED_DIR, PATCH_VERIFIED_DIR
 export const TAG_MAP_PATH = `${AGENT_WORKSPACE}/tickets/tag-map.json`;
 export const FAILURE_CLASSES_PATH = `${AGENT_WORKSPACE}/tickets/failure-classes.json`;
 

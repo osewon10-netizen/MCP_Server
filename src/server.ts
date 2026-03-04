@@ -23,6 +23,7 @@ import * as wrappersMod from "./tools/wrappers.js";
 import * as overviewMod from "./tools/overview.js";
 import * as filesMod from "./tools/files.js";
 import * as networkMod from "./tools/network.js";
+import * as trainingMod from "./tools/training.js";
 
 type ToolHandler = (name: string, args: Record<string, unknown>) => Promise<CallToolResult>;
 
@@ -49,6 +50,7 @@ const toolModules: ToolModule[] = [
   overviewMod,
   filesMod,
   networkMod,
+  trainingMod,
 ];
 
 function getAllToolDefinitions(): Tool[] {

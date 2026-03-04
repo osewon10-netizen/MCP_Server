@@ -4,14 +4,15 @@ import fs from "node:fs/promises";
 import type { Tool, CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { pm2List } from "../lib/pm2-client.js";
 import { mantisQuery, mantisHealthCheck } from "../lib/mantis-client.js";
-import { readIndex } from "../lib/index-manager.js";
+import { readIndex, writeIndex } from "../lib/index-manager.js";
 import {
   TICKET_INDEX,
   PATCH_INDEX,
   BACKUP_DIR,
+  SERVICE_REPOS,
 } from "../lib/paths.js";
 import { lookupTicketArchive, lookupPatchArchive } from "../lib/archive.js";
-import type { TicketIndex, PatchIndex } from "../types.js";
+import type { TicketIndex, PatchIndex, TicketEntry, PatchEntry } from "../types.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -50,6 +51,45 @@ export const tools: Tool[] = [
         },
       },
       required: ["ids"],
+    },
+  },
+  {
+    name: "my_queue",
+    description:
+      "List tickets and patches assigned to a specific agent/team. Sorted by severity/priority.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        agent: { type: "string", description: "Agent or team identifier (e.g. dev.minimart, mini)" },
+        prefix: { type: "boolean", description: "Match by prefix instead of exact (default: false)" },
+      },
+      required: ["agent"],
+    },
+  },
+  {
+    name: "peek",
+    description:
+      "Read-only view of a ticket or patch with related entries and project info. No side effects.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: { type: "string", description: "Ticket or patch ID (TK-XXX or PA-XXX)" },
+      },
+      required: ["id"],
+    },
+  },
+  {
+    name: "pick_up",
+    description:
+      "Claim a ticket or patch for work. Sets claimed_by. Rejects if already claimed by another agent unless force=true.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: { type: "string", description: "Ticket or patch ID (TK-XXX or PA-XXX)" },
+        agent: { type: "string", description: "Your agent identity (e.g. dev.minimart.sonnet.4.6)" },
+        force: { type: "boolean", description: "Override existing claim (default: false)" },
+      },
+      required: ["id", "agent"],
     },
   },
 ];
@@ -267,6 +307,283 @@ async function batchTicketStatus(args: Record<string, unknown>): Promise<CallToo
   return { content: [{ type: "text", text: JSON.stringify({ results }, null, 2) }] };
 }
 
+// ─── Handoff Helpers ────────────────────────────────────────────────
+
+function matchesAgent(assignedTo: string | undefined, agent: string, prefix: boolean): boolean {
+  if (!assignedTo) return false;
+  return prefix ? assignedTo.startsWith(agent) : assignedTo === agent;
+}
+
+const SEVERITY_ORDER: Record<string, number> = { blocking: 0, degraded: 1, cosmetic: 2 };
+const PRIORITY_ORDER: Record<string, number> = { high: 0, medium: 1, low: 2 };
+
+async function resolveEntry(id: string): Promise<{ type: "ticket" | "patch"; entry: TicketEntry | PatchEntry; source: "open" | "archive" } | null> {
+  if (id.startsWith("TK-")) {
+    try {
+      const index = await readIndex<TicketIndex>(TICKET_INDEX);
+      if (index.tickets[id]) return { type: "ticket", entry: index.tickets[id], source: "open" };
+    } catch { /* */ }
+    const archMap = await lookupTicketArchive([id]);
+    const archived = archMap.get(id);
+    if (archived) return { type: "ticket", entry: archived, source: "archive" };
+  } else if (id.startsWith("PA-")) {
+    try {
+      const index = await readIndex<PatchIndex>(PATCH_INDEX);
+      if (index.patches[id]) return { type: "patch", entry: index.patches[id], source: "open" };
+    } catch { /* */ }
+    const archMap = await lookupPatchArchive([id]);
+    const archived = archMap.get(id);
+    if (archived) return { type: "patch", entry: archived, source: "archive" };
+  }
+  return null;
+}
+
+// ─── Handoff Handlers ───────────────────────────────────────────────
+
+async function myQueue(args: Record<string, unknown>): Promise<CallToolResult> {
+  const agent = args.agent as string;
+  const prefix = (args.prefix as boolean) ?? false;
+
+  const [ticketsResult, patchesResult] = await Promise.allSettled([
+    readIndex<TicketIndex>(TICKET_INDEX),
+    readIndex<PatchIndex>(PATCH_INDEX),
+  ]);
+
+  const ticketIdx = extractSettled(ticketsResult);
+  const patchIdx = extractSettled(patchesResult);
+
+  const tickets: Array<{
+    id: string;
+    service: string;
+    summary: string;
+    severity: string;
+    status: string;
+    claimed_by: string | null;
+    handoff_note: string | null;
+    created: string;
+  }> = [];
+
+  if (ticketIdx) {
+    for (const [id, e] of Object.entries(ticketIdx.tickets)) {
+      if (matchesAgent(e.assigned_to, agent, prefix)) {
+        tickets.push({
+          id,
+          service: e.service,
+          summary: e.summary,
+          severity: e.severity,
+          status: e.status,
+          claimed_by: e.claimed_by ?? null,
+          handoff_note: e.handoff_note ?? null,
+          created: e.created,
+        });
+      }
+    }
+    tickets.sort((a, b) => (SEVERITY_ORDER[a.severity] ?? 9) - (SEVERITY_ORDER[b.severity] ?? 9));
+  }
+
+  const patches: Array<{
+    id: string;
+    service: string;
+    summary: string;
+    priority: string;
+    category: string;
+    status: string;
+    claimed_by: string | null;
+    handoff_note: string | null;
+    created: string;
+  }> = [];
+
+  if (patchIdx) {
+    for (const [id, e] of Object.entries(patchIdx.patches)) {
+      if (matchesAgent(e.assigned_to, agent, prefix)) {
+        patches.push({
+          id,
+          service: e.service,
+          summary: e.summary,
+          priority: e.priority,
+          category: e.category,
+          status: e.status,
+          claimed_by: e.claimed_by ?? null,
+          handoff_note: e.handoff_note ?? null,
+          created: e.created,
+        });
+      }
+    }
+    patches.sort((a, b) => (PRIORITY_ORDER[a.priority] ?? 9) - (PRIORITY_ORDER[b.priority] ?? 9));
+  }
+
+  return {
+    content: [{
+      type: "text",
+      text: JSON.stringify({ agent, tickets, patches }, null, 2),
+    }],
+  };
+}
+
+async function peek(args: Record<string, unknown>): Promise<CallToolResult> {
+  const id = args.id as string;
+
+  const resolved = await resolveEntry(id);
+  if (!resolved) {
+    return { content: [{ type: "text", text: `${id} not found in index or archive` }], isError: true };
+  }
+
+  // Resolve related entries
+  const relatedIds = resolved.entry.related ?? [];
+  const relatedEntries: Array<{ id: string; type: string; summary: string; status: string; source: string }> = [];
+  for (const relId of relatedIds) {
+    const rel = await resolveEntry(relId);
+    if (rel) {
+      relatedEntries.push({
+        id: relId,
+        type: rel.type,
+        summary: rel.entry.summary,
+        status: rel.entry.status,
+        source: rel.source,
+      });
+    }
+  }
+
+  // Service repo path
+  const repoPath = SERVICE_REPOS[resolved.entry.service] ?? null;
+
+  return {
+    content: [{
+      type: "text",
+      text: JSON.stringify({
+        id,
+        type: resolved.type,
+        source: resolved.source,
+        entry: resolved.entry,
+        related: relatedEntries,
+        project: { service: resolved.entry.service, repoPath },
+      }, null, 2),
+    }],
+  };
+}
+
+async function pickUp(args: Record<string, unknown>): Promise<CallToolResult> {
+  const id = args.id as string;
+  const agent = args.agent as string;
+  const force = (args.force as boolean) ?? false;
+
+  // Determine type and read the right index
+  const isTicket = id.startsWith("TK-");
+  const isPatch = id.startsWith("PA-");
+
+  if (!isTicket && !isPatch) {
+    return { content: [{ type: "text", text: `Invalid ID format: ${id}. Must start with TK- or PA-` }], isError: true };
+  }
+
+  if (isTicket) {
+    const index = await readIndex<TicketIndex>(TICKET_INDEX);
+    const entry = index.tickets[id];
+    if (!entry) {
+      return { content: [{ type: "text", text: `Ticket ${id} not found in index` }], isError: true };
+    }
+
+    // Atomic claim check
+    if (entry.claimed_by && entry.claimed_by !== agent && !force) {
+      return {
+        content: [{
+          type: "text",
+          text: `Ticket ${id} is claimed by ${entry.claimed_by}. Use peek(id) for read-only access, or pick_up with force=true to override.`,
+        }],
+        isError: true,
+      };
+    }
+
+    const now = new Date().toISOString();
+
+    // Record forced claim audit
+    if (entry.claimed_by && entry.claimed_by !== agent && force) {
+      entry.contention_count = (entry.contention_count ?? 0) + 1;
+      entry.last_forced_claim = { by: agent, prior: entry.claimed_by, at: now };
+    }
+
+    entry.claimed_by = agent;
+    entry.claimed_at = now;
+    entry.updated_at = now;
+    await writeIndex(TICKET_INDEX, index);
+
+    // Return full context (same as peek but with claim applied)
+    const relatedIds = entry.related ?? [];
+    const relatedEntries: Array<{ id: string; type: string; summary: string; status: string }> = [];
+    for (const relId of relatedIds) {
+      const rel = await resolveEntry(relId);
+      if (rel) relatedEntries.push({ id: relId, type: rel.type, summary: rel.entry.summary, status: rel.entry.status });
+    }
+
+    const repoPath = SERVICE_REPOS[entry.service] ?? null;
+
+    return {
+      content: [{
+        type: "text",
+        text: JSON.stringify({
+          claimed: true,
+          id,
+          type: "ticket",
+          entry,
+          related: relatedEntries,
+          project: { service: entry.service, repoPath },
+        }, null, 2),
+      }],
+    };
+  }
+
+  // Patch
+  const index = await readIndex<PatchIndex>(PATCH_INDEX);
+  const entry = index.patches[id];
+  if (!entry) {
+    return { content: [{ type: "text", text: `Patch ${id} not found in index` }], isError: true };
+  }
+
+  if (entry.claimed_by && entry.claimed_by !== agent && !force) {
+    return {
+      content: [{
+        type: "text",
+        text: `Patch ${id} is claimed by ${entry.claimed_by}. Use peek(id) for read-only access, or pick_up with force=true to override.`,
+      }],
+      isError: true,
+    };
+  }
+
+  const now = new Date().toISOString();
+
+  if (entry.claimed_by && entry.claimed_by !== agent && force) {
+    entry.contention_count = (entry.contention_count ?? 0) + 1;
+    entry.last_forced_claim = { by: agent, prior: entry.claimed_by, at: now };
+  }
+
+  entry.claimed_by = agent;
+  entry.claimed_at = now;
+  entry.updated_at = now;
+  await writeIndex(PATCH_INDEX, index);
+
+  const relatedIds = entry.related ?? [];
+  const relatedEntries: Array<{ id: string; type: string; summary: string; status: string }> = [];
+  for (const relId of relatedIds) {
+    const rel = await resolveEntry(relId);
+    if (rel) relatedEntries.push({ id: relId, type: rel.type, summary: rel.entry.summary, status: rel.entry.status });
+  }
+
+  const repoPath = SERVICE_REPOS[entry.service] ?? null;
+
+  return {
+    content: [{
+      type: "text",
+      text: JSON.stringify({
+        claimed: true,
+        id,
+        type: "patch",
+        entry,
+        related: relatedEntries,
+        project: { service: entry.service, repoPath },
+      }, null, 2),
+    }],
+  };
+}
+
 // ─── Dispatch ───────────────────────────────────────────────────────
 
 export async function handleCall(name: string, args: Record<string, unknown>): Promise<CallToolResult> {
@@ -274,6 +591,9 @@ export async function handleCall(name: string, args: Record<string, unknown>): P
     case "server_overview": return serverOverview();
     case "quick_status": return quickStatus();
     case "batch_ticket_status": return batchTicketStatus(args);
+    case "my_queue": return myQueue(args);
+    case "peek": return peek(args);
+    case "pick_up": return pickUp(args);
     default:
       return { content: [{ type: "text", text: `Unknown tool: ${name}` }], isError: true };
   }

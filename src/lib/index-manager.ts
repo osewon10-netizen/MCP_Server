@@ -14,15 +14,56 @@ export async function readIndex<T extends TicketIndex | PatchIndex>(
 }
 
 /**
- * Write index.json atomically: write to .tmp, then rename over original.
- * This prevents partial writes from corrupting the index.
+ * Write index.json with hardened safety:
+ * 1. Backup current → .bak
+ * 2. Write to .tmp
+ * 3. Best-effort fsync
+ * 4. Validate by re-parsing
+ * 5. Atomic rename .tmp → index.json
+ * On failure: restore .bak, preserve corrupt file as evidence.
  */
 export async function writeIndex<T extends TicketIndex | PatchIndex>(
   indexPath: string,
   data: T
 ): Promise<void> {
+  // 1. Backup current file before mutation
+  try {
+    await fs.copyFile(indexPath, indexPath + ".bak");
+  } catch {
+    // First write — no existing file to backup
+  }
+
+  // 2. Write to tmp
   const tmpPath = indexPath + ".tmp";
-  await fs.writeFile(tmpPath, JSON.stringify(data, null, 4), "utf-8");
+  const json = JSON.stringify(data, null, 4);
+  await fs.writeFile(tmpPath, json, "utf-8");
+
+  // 3. Best-effort fsync to survive power loss
+  try {
+    const fh = await fs.open(tmpPath, "r");
+    await fh.sync();
+    await fh.close();
+  } catch {
+    // fsync not critical — continue
+  }
+
+  // 4. Validate by re-parsing
+  const check = await fs.readFile(tmpPath, "utf-8");
+  try {
+    JSON.parse(check);
+  } catch (e) {
+    // Corrupt write — preserve evidence, restore backup
+    const ts = Date.now();
+    try {
+      await fs.rename(tmpPath, `${indexPath}.corrupt.${ts}`);
+    } catch { /* best effort */ }
+    try {
+      await fs.copyFile(indexPath + ".bak", indexPath);
+    } catch { /* best effort */ }
+    throw new Error(`Index write validation failed: ${e}`);
+  }
+
+  // 5. Atomic rename
   await fs.rename(tmpPath, indexPath);
 }
 
@@ -55,10 +96,10 @@ export function slugify(text: string, maxLen = 50): string {
 }
 
 /**
- * Generate ticket/patch filename.
- * Format: TK-049_hobby-bot_short-desc_2026-03-02.md
+ * Generate a human-readable slug for a ticket/patch.
+ * Format: TK-049_hobby-bot_short-desc_2026-03-02
  */
-export function generateFilename(
+export function generateSlug(
   id: string,
   service: string,
   summary: string,
@@ -66,5 +107,8 @@ export function generateFilename(
 ): string {
   const svcSlug = service.replace(/_/g, "-");
   const descSlug = slugify(summary, 40);
-  return `${id}_${svcSlug}_${descSlug}_${date}.md`;
+  return `${id}_${svcSlug}_${descSlug}_${date}`;
 }
+
+/** @deprecated Use generateSlug. Kept for migration compatibility. */
+export const generateFilename = generateSlug;

@@ -1,7 +1,24 @@
 // === Ticket System Types ===
 
+export interface VerificationRecord {
+  verified_by: string;
+  deployed: boolean;
+  health_check: string;
+  outcome: string;
+  verified_at: string;
+  commit?: string;
+}
+
+export interface ForcedClaimRecord {
+  by: string;
+  prior: string;
+  at: string;
+}
+
 export interface TicketEntry {
-  file: string;
+  slug: string;             // human-readable identifier (generated filename, no file written)
+  /** @deprecated Use slug. Kept for migration compatibility. */
+  file?: string;
   service: string;
   summary: string;
   severity: "blocking" | "degraded" | "cosmetic";
@@ -9,14 +26,39 @@ export interface TicketEntry {
   tags: string[];
   status: "open" | "in-progress" | "patched" | "resolved";
   outcome: "fixed" | "mitigated" | "false_positive" | "wont_fix" | "needs_followup";
-  evidence_refs?: string[];
   created: string; // YYYY-MM-DD
   created_by: string;
   related?: string[];
+
+  // Detection context
+  detected_via?: string;
+  symptom?: string;
+  likely_cause?: string;
+  where_to_look?: string[];
+
+  // Investigation lifecycle
+  evidence?: string;
+  evidence_refs?: string[];
+  patch_notes?: string;
+
+  // Structured verification
+  verification?: VerificationRecord;
+
+  // Agent handoff
+  assigned_to?: string;         // team queue: "dev.minimart", "mini"
+  claimed_by?: string;          // worker: "dev.minimart.sonnet.4.6"
+  claimed_at?: string;          // ISO timestamp of claim
+  handoff_note?: string;        // context for the next agent
+  handoff_count?: number;       // loop detection
+  contention_count?: number;    // forced claim counter
+  last_forced_claim?: ForcedClaimRecord;
+  updated_at?: string;
 }
 
 export interface PatchEntry {
-  file: string;
+  slug: string;
+  /** @deprecated Use slug. Kept for migration compatibility. */
+  file?: string;
   service: string;
   summary: string;
   priority: "high" | "medium" | "low";
@@ -25,16 +67,38 @@ export interface PatchEntry {
   tags: string[];
   status: "open" | "in-review" | "applied" | "verified" | "rejected";
   outcome: "fixed" | "mitigated" | "false_positive" | "wont_fix" | "needs_followup";
-  evidence_refs?: string[];
-  related?: string[];
   created: string;
   created_by: string;
+  related?: string[];
+  evidence_refs?: string[];
   applied?: string;
   applied_by?: string;
   verified?: string;
   verified_by?: string;
   commit?: string;
   pushed?: boolean;
+
+  // Suggestion context
+  what_to_change?: string;
+  why?: string;
+  where_to_change?: string[];
+
+  // Lifecycle content
+  proposed_diff?: string;
+  applied_notes?: string;
+
+  // Structured verification
+  verification?: VerificationRecord;
+
+  // Agent handoff
+  assigned_to?: string;
+  claimed_by?: string;
+  claimed_at?: string;
+  handoff_note?: string;
+  handoff_count?: number;
+  contention_count?: number;
+  last_forced_claim?: ForcedClaimRecord;
+  updated_at?: string;
 }
 
 export interface TicketIndex {

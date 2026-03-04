@@ -1,58 +1,86 @@
-import fs from "node:fs/promises";
-import path from "node:path";
 import type { Tool, CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import {
-  PATCH_DIR,
   PATCH_INDEX,
-  PATCH_VERIFIED_DIR,
 } from "../lib/paths.js";
 import {
   readIndex,
   writeIndex,
   allocateId,
-  generateFilename,
+  generateSlug,
 } from "../lib/index-manager.js";
-import { searchPatchArchive, appendPatchArchive } from "../lib/archive.js";
 import { normalizeTags } from "../lib/tag-normalizer.js";
 import { validateFailureClass } from "../lib/failure-validator.js";
-import { renderPatchMarkdown } from "../lib/template-renderer.js";
+import { searchPatchArchive, appendPatchArchive } from "../lib/archive.js";
 import type { PatchIndex, PatchEntry } from "../types.js";
+
+// ─── Human-readable rendering (on-the-fly, not stored) ─────────────
+
+function renderHumanView(id: string, e: PatchEntry): string {
+  const lines: string[] = [
+    `${id} · [${e.service}] — ${e.summary}`,
+    ``,
+    `Priority: ${e.priority}  |  Category: ${e.category}  |  Status: ${e.status}  |  Outcome: ${e.outcome}`,
+    `Created: ${e.created} by ${e.created_by}`,
+  ];
+
+  if (e.assigned_to) lines.push(`Assigned to: ${e.assigned_to}`);
+  if (e.claimed_by) lines.push(`Claimed by: ${e.claimed_by} (at ${e.claimed_at ?? "?"})`);
+  if (e.failure_class) lines.push(`Failure class: ${e.failure_class}`);
+  if (e.tags.length) lines.push(`Tags: ${e.tags.join(", ")}`);
+  if (e.related?.length) lines.push(`Related: ${e.related.join(", ")}`);
+  if (e.handoff_note) lines.push(`\nHandoff note: ${e.handoff_note}`);
+
+  if (e.what_to_change || e.why) {
+    lines.push(``, `── Suggestion ──`);
+    if (e.what_to_change) lines.push(`What to change: ${e.what_to_change}`);
+    if (e.why) lines.push(`Why: ${e.why}`);
+    if (e.where_to_change?.length) lines.push(`Where:\n${e.where_to_change.map(w => `  - ${w}`).join("\n")}`);
+  }
+
+  if (e.proposed_diff) lines.push(``, `── Proposed Diff ──`, e.proposed_diff);
+  if (e.evidence_refs?.length) lines.push(`Evidence refs: ${e.evidence_refs.join(", ")}`);
+  if (e.applied_notes) lines.push(``, `── Applied Notes ──`, e.applied_notes);
+
+  if (e.verification) {
+    const v = e.verification;
+    lines.push(``, `── Verification ──`);
+    lines.push(`Verified by: ${v.verified_by} at ${v.verified_at}`);
+    lines.push(`Deployed: ${v.deployed ? "yes" : "no"}  |  Health: ${v.health_check}  |  Outcome: ${v.outcome}`);
+    if (v.commit) lines.push(`Commit: ${v.commit}`);
+  }
+
+  return lines.join("\n");
+}
 
 // ─── Tool Definitions ───────────────────────────────────────────────
 
 export const tools: Tool[] = [
   {
     name: "list_patches",
-    description: "List patches from the index, optionally filtered by service and/or status. status accepts a string or array of strings.",
+    description: "List patches from the index, optionally filtered by service and/or status.",
     inputSchema: {
       type: "object",
       properties: {
         service: { type: "string", description: "Filter by service name" },
-        status: {
-          description: "Filter by status — string or array. e.g. 'open' or ['open','applied']",
-          oneOf: [
-            { type: "string" },
-            { type: "array", items: { type: "string" } },
-          ],
-        },
+        status: { type: "string", description: "Filter by status (open, in-review, applied, verified, rejected)" },
       },
     },
   },
   {
     name: "view_patch",
-    description: "Read the full markdown content of a patch by ID. Use mode='summary' for metadata + applied notes + verification only (skips suggestion boilerplate, cuts tokens ~50%).",
+    description: "View a patch by ID. Returns structured entry (default) or human-readable text (mode=human).",
     inputSchema: {
       type: "object",
       properties: {
         id: { type: "string", description: "Patch ID, e.g. PA-042" },
-        mode: { type: "string", enum: ["full", "summary"], description: "Default: full. summary returns metadata + applied notes + verification only." },
+        mode: { type: "string", enum: ["entry", "human"], description: "Output mode (default: entry)" },
       },
       required: ["id"],
     },
   },
   {
     name: "create_patch",
-    description: "Create a new patch suggestion. Validates failure_class, normalizes tags, writes markdown file, updates index.json.",
+    description: "Create a new patch suggestion. Validates failure_class, normalizes tags, writes to index.",
     inputSchema: {
       type: "object",
       properties: {
@@ -68,6 +96,7 @@ export const tools: Tool[] = [
         what_to_change: { type: "string" },
         why: { type: "string" },
         where_to_change: { type: "array", items: { type: "string" } },
+        assigned_to: { type: "string", description: "Team queue (e.g. dev.minimart, mini)" },
         author: { type: "string" },
       },
       required: ["service", "summary", "priority", "category", "tags", "what_to_change", "why", "where_to_change", "author"],
@@ -88,23 +117,22 @@ export const tools: Tool[] = [
   },
   {
     name: "update_patch",
-    description: "Append structured content to specific sections of a patch (evidence_refs, proposed_diff, applied_notes, verification, related). Works regardless of current file rename state.",
+    description: "Update fields on a patch entry directly. All fields are optional — only provided fields are updated.",
     inputSchema: {
       type: "object",
       properties: {
         id: { type: "string", description: "Patch ID, e.g. PA-042" },
-        evidence_refs: { type: "string", description: "Append to the Evidence Refs section" },
-        proposed_diff: { type: "string", description: "Append to the Proposed Diff section" },
-        applied_notes: { type: "string", description: "Append to the Applied section" },
-        verification: { type: "string", description: "Append to the Verification section" },
-        related: { type: "string", description: "Set the Related field in the metadata table (e.g. 'TK-068')" },
+        evidence_refs: { type: "array", items: { type: "string" }, description: "Set/replace evidence references" },
+        proposed_diff: { type: "string", description: "Set/replace proposed diff" },
+        applied_notes: { type: "string", description: "Set/replace applied notes" },
+        related: { type: "array", items: { type: "string" }, description: "Set related ticket/patch IDs" },
       },
       required: ["id"],
     },
   },
   {
     name: "update_patch_status",
-    description: "Advance a patch's status. Transitions: open → applied → verified. Renames file and updates/archives index entry.",
+    description: "Advance a patch's status. Transitions: open → applied → verified. Archives on verified.",
     inputSchema: {
       type: "object",
       properties: {
@@ -125,7 +153,7 @@ export const tools: Tool[] = [
   {
     name: "archive_patch",
     description:
-      "Full close workflow: fill verification section, rename, move to verified/, archive index entry, remove from open index. Patch must be in 'applied' status.",
+      "Full close workflow: fill verification, archive to JSONL, remove from open index. Patch must be in 'applied' status.",
     inputSchema: {
       type: "object",
       properties: {
@@ -134,8 +162,22 @@ export const tools: Tool[] = [
         deployed: { type: "boolean", description: "Was the patch deployed?" },
         health_check: { type: "string", description: "Health check result summary" },
         outcome: { type: "string", enum: ["fixed", "mitigated", "false_positive", "wont_fix", "needs_followup"] },
+        commit: { type: "string", description: "Commit SHA" },
       },
       required: ["id", "verified_by"],
+    },
+  },
+  {
+    name: "assign_patch",
+    description: "Assign a patch to a team queue. Clears claimed_by if assigned_to changes.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: { type: "string", description: "Patch ID" },
+        assigned_to: { type: "string", description: "Team queue (e.g. dev.minimart, mini)" },
+        handoff_note: { type: "string", description: "Context for the receiving agent" },
+      },
+      required: ["id", "assigned_to"],
     },
   },
 ];
@@ -144,16 +186,13 @@ export const tools: Tool[] = [
 
 async function listPatches(args: Record<string, unknown>): Promise<CallToolResult> {
   const service = args.service as string | undefined;
-  const statusRaw = args.status as string | string[] | undefined;
-  const statusFilter = statusRaw
-    ? Array.isArray(statusRaw) ? statusRaw : [statusRaw]
-    : undefined;
+  const status = args.status as string | undefined;
 
   const index = await readIndex<PatchIndex>(PATCH_INDEX);
   let entries = Object.entries(index.patches);
 
   if (service) entries = entries.filter(([, e]) => e.service === service);
-  if (statusFilter) entries = entries.filter(([, e]) => statusFilter.includes(e.status));
+  if (status) entries = entries.filter(([, e]) => e.status === status);
 
   const result = entries.map(([id, e]) => ({
     id,
@@ -164,6 +203,8 @@ async function listPatches(args: Record<string, unknown>): Promise<CallToolResul
     status: e.status,
     created: e.created,
     tags: e.tags,
+    assigned_to: e.assigned_to ?? null,
+    claimed_by: e.claimed_by ?? null,
   }));
 
   return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
@@ -171,7 +212,7 @@ async function listPatches(args: Record<string, unknown>): Promise<CallToolResul
 
 async function viewPatch(args: Record<string, unknown>): Promise<CallToolResult> {
   const id = args.id as string;
-  const mode = (args.mode as string | undefined) ?? "full";
+  const mode = (args.mode as string) ?? "entry";
 
   const index = await readIndex<PatchIndex>(PATCH_INDEX);
   const entry = index.patches[id];
@@ -179,27 +220,11 @@ async function viewPatch(args: Record<string, unknown>): Promise<CallToolResult>
     return { content: [{ type: "text", text: `Patch ${id} not found in index` }], isError: true };
   }
 
-  const filePath = path.join(PATCH_DIR, entry.file);
-  let content: string;
-  try {
-    content = await fs.readFile(filePath, "utf-8");
-  } catch {
-    return { content: [{ type: "text", text: `File not found: ${entry.file}` }], isError: true };
+  if (mode === "human") {
+    return { content: [{ type: "text", text: renderHumanView(id, entry) }] };
   }
 
-  if (mode === "summary") {
-    const metaMatch = content.match(/^(##.*?)\n---/s);
-    const appliedMatch = content.match(/## Applied\n([\s\S]*?)(?=\n---|\n## |$)/);
-    const verificationMatch = content.match(/## Verification\n([\s\S]*?)$/);
-    const summary = [
-      metaMatch ? metaMatch[0] : `[${id}]`,
-      appliedMatch ? `## Applied\n${appliedMatch[1].trim()}` : "",
-      verificationMatch ? `## Verification\n${verificationMatch[1].trim()}` : "",
-    ].filter(Boolean).join("\n\n---\n\n");
-    return { content: [{ type: "text", text: summary }] };
-  }
-
-  return { content: [{ type: "text", text: content }] };
+  return { content: [{ type: "text", text: JSON.stringify({ id, ...entry }, null, 2) }] };
 }
 
 async function createPatch(args: Record<string, unknown>): Promise<CallToolResult> {
@@ -212,6 +237,7 @@ async function createPatch(args: Record<string, unknown>): Promise<CallToolResul
   const whatToChange = args.what_to_change as string;
   const why = args.why as string;
   const whereToChange = (args.where_to_change as string[]) ?? [];
+  const assignedTo = args.assigned_to as string | undefined;
   const author = args.author as string;
 
   // Validate failure_class if provided
@@ -232,31 +258,12 @@ async function createPatch(args: Record<string, unknown>): Promise<CallToolResul
   const index = await readIndex<PatchIndex>(PATCH_INDEX);
   const { id, nextId } = allocateId(index, "PA");
   const created = new Date().toISOString().slice(0, 10);
+  const now = new Date().toISOString();
 
-  // Generate filename + markdown
-  const filename = generateFilename(id, service, summary, created);
-  const markdown = renderPatchMarkdown({
-    id,
-    author,
-    created,
-    service,
-    summary,
-    priority,
-    category,
-    failureClass: failureClassRaw ?? "unknown",
-    tags,
-    whatToChange,
-    why,
-    whereToChange,
-  });
+  const slug = generateSlug(id, service, summary, created);
 
-  // Write markdown file
-  const filePath = path.join(PATCH_DIR, filename);
-  await fs.writeFile(filePath, markdown, "utf-8");
-
-  // Update index atomically
   const newEntry: PatchEntry = {
-    file: filename,
+    slug,
     service,
     summary,
     priority,
@@ -267,6 +274,11 @@ async function createPatch(args: Record<string, unknown>): Promise<CallToolResul
     outcome: "needs_followup",
     created,
     created_by: author,
+    what_to_change: whatToChange,
+    why,
+    where_to_change: whereToChange,
+    assigned_to: assignedTo ?? author,
+    updated_at: now,
   };
 
   const updatedIndex: PatchIndex = {
@@ -282,7 +294,7 @@ async function createPatch(args: Record<string, unknown>): Promise<CallToolResul
   return {
     content: [{
       type: "text",
-      text: JSON.stringify({ id, file: filename, tags }) + warnings,
+      text: JSON.stringify({ id, slug, tags, assigned_to: newEntry.assigned_to }) + warnings,
     }],
   };
 }
@@ -351,14 +363,13 @@ async function searchPatches(args: Record<string, unknown>): Promise<CallToolRes
 
 async function updatePatch(args: Record<string, unknown>): Promise<CallToolResult> {
   const id = args.id as string;
-  const evidenceRefs = args.evidence_refs as string | undefined;
+  const evidenceRefs = args.evidence_refs as string[] | undefined;
   const proposedDiff = args.proposed_diff as string | undefined;
   const appliedNotes = args.applied_notes as string | undefined;
-  const verification = args.verification as string | undefined;
-  const related = args.related as string | undefined;
+  const related = args.related as string[] | undefined;
 
-  if (!evidenceRefs && !proposedDiff && !appliedNotes && !verification && !related) {
-    return { content: [{ type: "text", text: "No fields provided — specify at least one of: evidence_refs, proposed_diff, applied_notes, verification, related" }], isError: true };
+  if (!evidenceRefs && !proposedDiff && !appliedNotes && !related) {
+    return { content: [{ type: "text", text: "No fields provided — specify at least one of: evidence_refs, proposed_diff, applied_notes, related" }], isError: true };
   }
 
   const index = await readIndex<PatchIndex>(PATCH_INDEX);
@@ -367,67 +378,14 @@ async function updatePatch(args: Record<string, unknown>): Promise<CallToolResul
     return { content: [{ type: "text", text: `Patch ${id} not found in index` }], isError: true };
   }
 
-  const filePath = path.join(PATCH_DIR, entry.file);
-  let content: string;
-  try {
-    content = await fs.readFile(filePath, "utf-8");
-  } catch {
-    return { content: [{ type: "text", text: `File not found: ${entry.file}` }], isError: true };
-  }
+  if (evidenceRefs !== undefined) entry.evidence_refs = evidenceRefs;
+  if (proposedDiff !== undefined) entry.proposed_diff = proposedDiff;
+  if (appliedNotes !== undefined) entry.applied_notes = appliedNotes;
+  if (related !== undefined) entry.related = related;
+  entry.updated_at = new Date().toISOString();
 
-  if (evidenceRefs) {
-    content = content.replace(
-      /### Evidence Refs <!-- optional on open, REQUIRED on applied\/verified -->/,
-      `### Evidence Refs\n\n${evidenceRefs}`
-    );
-    if (!content.includes(evidenceRefs)) {
-      content = content.replace(/### Evidence Refs\n\n/, `### Evidence Refs\n\n${evidenceRefs}\n\n`);
-    }
-  }
-
-  if (proposedDiff) {
-    content = content.replace(
-      /### Proposed Diff <!-- optional but encouraged -->/,
-      `### Proposed Diff\n\n${proposedDiff}`
-    );
-    if (!content.includes(proposedDiff)) {
-      content = content.replace(/### Proposed Diff\n\n/, `### Proposed Diff\n\n${proposedDiff}\n\n`);
-    }
-  }
-
-  if (appliedNotes) {
-    content = content.replace(
-      /## Applied\n<!-- Filled by dev rig agent after change is applied -->/,
-      `## Applied\n${appliedNotes}`
-    );
-    if (!content.includes(appliedNotes)) {
-      content = content.replace(/## Applied\n/, `## Applied\n${appliedNotes}\n`);
-    }
-  }
-
-  if (verification) {
-    content = content.replace(
-      /## Verification\n<!-- Filled by Mini agent after deploy -->/,
-      `## Verification\n${verification}`
-    );
-    if (!content.includes(verification)) {
-      content = content.replace(/## Verification\n/, `## Verification\n${verification}\n`);
-    }
-  }
-
-  if (related) {
-    if (content.includes("| **Related** |")) {
-      content = content.replace(/\| \*\*Related\*\* \|.*\|/, `| **Related** | ${related} |`);
-    } else {
-      content = content.replace(
-        /(\| \*\*Status\*\* \|)/,
-        `| **Related** | ${related} |\n$1`
-      );
-    }
-  }
-
-  await fs.writeFile(filePath, content, "utf-8");
-  return { content: [{ type: "text", text: JSON.stringify({ success: true, id, file: entry.file }) }] };
+  await writeIndex(PATCH_INDEX, index);
+  return { content: [{ type: "text", text: JSON.stringify({ success: true, id, updated_fields: Object.keys(args).filter(k => k !== "id") }) }] };
 }
 
 async function updatePatchStatus(args: Record<string, unknown>): Promise<CallToolResult> {
@@ -461,51 +419,29 @@ async function updatePatchStatus(args: Record<string, unknown>): Promise<CallToo
     };
   }
 
-  const oldFilePath = path.join(PATCH_DIR, entry.file);
   const today = new Date().toISOString().slice(0, 10);
+  const now = new Date().toISOString();
 
   if (newStatus === "applied") {
-    // Rename: file.md → file.applied.md
-    const newFilename = entry.file.replace(/\.md$/, ".applied.md");
-    const newFilePath = path.join(PATCH_DIR, newFilename);
-    await fs.rename(oldFilePath, newFilePath);
-
-    const updatedEntry: PatchEntry = {
-      ...entry,
-      file: newFilename,
-      status: "applied",
-      outcome: outcome ?? entry.outcome,
-      applied: today,
-      applied_by: appliedBy,
-      commit,
-      pushed,
-    };
-    const updatedIndex: PatchIndex = {
-      ...index,
-      patches: { ...index.patches, [id]: updatedEntry },
-    };
-    await writeIndex(PATCH_INDEX, updatedIndex);
-
-    return { content: [{ type: "text", text: JSON.stringify({ success: true, new_file: newFilename }) }] };
+    entry.status = "applied";
+    entry.outcome = outcome ?? entry.outcome;
+    entry.applied = today;
+    entry.applied_by = appliedBy;
+    entry.commit = commit;
+    entry.pushed = pushed;
+    entry.updated_at = now;
+    await writeIndex(PATCH_INDEX, index);
+    return { content: [{ type: "text", text: JSON.stringify({ success: true, id, status: "applied" }) }] };
   }
 
   if (newStatus === "verified") {
-    // Rename: file.applied.md → file.applied.verified.md, move to verified/
-    await fs.mkdir(PATCH_VERIFIED_DIR, { recursive: true });
-    const basename = path.basename(entry.file, ".applied.md");
-    const newFilename = `${basename}.applied.verified.md`;
-    const newFilePath = path.join(PATCH_VERIFIED_DIR, newFilename);
-
-    await fs.rename(oldFilePath, newFilePath);
-
-    // Move entry from index to archive
     const verifiedEntry: PatchEntry = {
       ...entry,
-      file: path.join("verified", newFilename),
       status: "verified",
       outcome: outcome ?? entry.outcome,
       verified: today,
       verified_by: verifiedBy,
+      updated_at: now,
     };
 
     // Append to JSONL archive
@@ -516,7 +452,7 @@ async function updatePatchStatus(args: Record<string, unknown>): Promise<CallToo
     const updatedIndex: PatchIndex = { ...index, patches: remainingPatches };
     await writeIndex(PATCH_INDEX, updatedIndex);
 
-    return { content: [{ type: "text", text: JSON.stringify({ success: true, new_file: verifiedEntry.file }) }] };
+    return { content: [{ type: "text", text: JSON.stringify({ success: true, id, status: "verified" }) }] };
   }
 
   return { content: [{ type: "text", text: "Unhandled status" }], isError: true };
@@ -528,11 +464,12 @@ async function archivePatch(args: Record<string, unknown>): Promise<CallToolResu
   const deployed = (args.deployed as boolean) ?? true;
   const healthCheck = (args.health_check as string) ?? "not checked";
   const outcome = (args.outcome as PatchEntry["outcome"]) ?? "fixed";
+  const commitSha = args.commit as string | undefined;
 
   const index = await readIndex<PatchIndex>(PATCH_INDEX);
   const entry = index.patches[id];
   if (!entry) {
-    return { content: [{ type: "text", text: `Patch ${id} not found in index` }], isError: true };
+    return { content: [{ type: "text", text: JSON.stringify({ already_archived: true, id }) }] };
   }
   if (entry.status !== "applied") {
     return {
@@ -543,50 +480,80 @@ async function archivePatch(args: Record<string, unknown>): Promise<CallToolResu
 
   const now = new Date().toISOString();
   const today = now.slice(0, 10);
-  const oldFilePath = path.join(PATCH_DIR, entry.file);
 
-  // Fill verification section in markdown
-  try {
-    let content = await fs.readFile(oldFilePath, "utf-8");
-    content = content
-      .replace(/\*\*Verified by:\*\*\s*/, `**Verified by:** ${verifiedBy}`)
-      .replace(/\*\*Deployed:\*\*\s*/, `**Deployed:** ${deployed ? "yes" : "no"}`)
-      .replace(/\*\*Health check:\*\*\s*/, `**Health check:** ${healthCheck}`)
-      .replace(/\*\*Outcome:\*\*\s*/, `**Outcome:** ${outcome}`)
-      .replace(/\*\*Verified at:\*\*\s*/, `**Verified at:** ${now}`);
-    await fs.writeFile(oldFilePath, content, "utf-8");
-  } catch {
-    // If we can't update content, continue with the archive anyway
-  }
+  const warnings: string[] = [];
+  if (!entry.applied_notes && !entry.proposed_diff) warnings.push("applied_notes/proposed_diff is empty (training data quality)");
 
-  // Move to verified
-  await fs.mkdir(PATCH_VERIFIED_DIR, { recursive: true });
-  const basename = path.basename(entry.file, ".applied.md");
-  const newFilename = `${basename}.applied.verified.md`;
-  const newFilePath = path.join(PATCH_VERIFIED_DIR, newFilename);
-  await fs.rename(oldFilePath, newFilePath);
-
-  // Archive entry
   const verifiedEntry: PatchEntry = {
     ...entry,
-    file: path.join("verified", newFilename),
     status: "verified",
     outcome,
     verified: today,
     verified_by: verifiedBy,
+    verification: {
+      verified_by: verifiedBy,
+      deployed,
+      health_check: healthCheck,
+      outcome,
+      verified_at: now,
+      commit: commitSha,
+    },
+    updated_at: now,
   };
 
-  // Append to JSONL archive
   await appendPatchArchive(id, verifiedEntry);
 
-  // Remove from open index
   const { [id]: _removed, ...remainingPatches } = index.patches;
   await writeIndex(PATCH_INDEX, { ...index, patches: remainingPatches });
 
   return {
     content: [{
       type: "text",
-      text: JSON.stringify({ success: true, id, new_file: verifiedEntry.file, outcome }),
+      text: JSON.stringify({
+        success: true,
+        id,
+        outcome,
+        warnings: warnings.length > 0 ? warnings : undefined,
+      }),
+    }],
+  };
+}
+
+async function assignPatch(args: Record<string, unknown>): Promise<CallToolResult> {
+  const id = args.id as string;
+  const assignedTo = args.assigned_to as string;
+  const handoffNote = args.handoff_note as string | undefined;
+
+  const index = await readIndex<PatchIndex>(PATCH_INDEX);
+  const entry = index.patches[id];
+  if (!entry) {
+    return { content: [{ type: "text", text: `Patch ${id} not found in index` }], isError: true };
+  }
+
+  const isReassign = entry.assigned_to !== assignedTo;
+
+  if (isReassign) {
+    entry.assigned_to = assignedTo;
+    entry.claimed_by = undefined;
+    entry.claimed_at = undefined;
+    entry.handoff_count = (entry.handoff_count ?? 0) + 1;
+  }
+
+  if (handoffNote !== undefined) entry.handoff_note = handoffNote;
+  entry.updated_at = new Date().toISOString();
+
+  await writeIndex(PATCH_INDEX, index);
+
+  return {
+    content: [{
+      type: "text",
+      text: JSON.stringify({
+        success: true,
+        id,
+        assigned_to: assignedTo,
+        reassigned: isReassign,
+        handoff_count: entry.handoff_count ?? 0,
+      }),
     }],
   };
 }
@@ -602,6 +569,7 @@ export async function handleCall(name: string, args: Record<string, unknown>): P
     case "update_patch": return updatePatch(args);
     case "update_patch_status": return updatePatchStatus(args);
     case "archive_patch": return archivePatch(args);
+    case "assign_patch": return assignPatch(args);
     default:
       return { content: [{ type: "text", text: `Unknown tool: ${name}` }], isError: true };
   }
