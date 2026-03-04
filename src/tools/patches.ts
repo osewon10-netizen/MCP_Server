@@ -10,7 +10,7 @@ import {
 } from "../lib/index-manager.js";
 import { normalizeTags } from "../lib/tag-normalizer.js";
 import { validateFailureClass } from "../lib/failure-validator.js";
-import { searchPatchArchive, appendPatchArchive } from "../lib/archive.js";
+import { searchPatchArchive, appendPatchArchive, lookupPatchArchive } from "../lib/archive.js";
 import type { PatchIndex, PatchEntry } from "../types.js";
 
 // ─── Human-readable rendering (on-the-fly, not stored) ─────────────
@@ -68,7 +68,7 @@ export const tools: Tool[] = [
   },
   {
     name: "view_patch",
-    description: "View a patch by ID. Returns structured entry (default) or human-readable text (mode=human).",
+    description: "View a patch by ID. Checks open index first, then archive. Returns structured entry (default) or human-readable text (mode=human).",
     inputSchema: {
       type: "object",
       properties: {
@@ -105,14 +105,14 @@ export const tools: Tool[] = [
   {
     name: "search_patches",
     description:
-      "Search patches by keyword across both open index and archive. Returns matching summaries without loading full archive into context.",
+      "Search patches by keyword and/or tags across both open index and archive. Returns matching summaries.",
     inputSchema: {
       type: "object",
       properties: {
-        query: { type: "string", description: "Keyword to search (matched against summary, tags, service, failure_class, category)" },
+        query: { type: "string", description: "Keyword to search (matched against summary, tags, service, failure_class, category). Optional if tags provided." },
         service: { type: "string", description: "Optional: also filter by service" },
+        tags: { type: "array", items: { type: "string" }, description: "Optional: filter by tags (entry must have ALL specified tags)" },
       },
-      required: ["query"],
     },
   },
   {
@@ -214,17 +214,26 @@ async function viewPatch(args: Record<string, unknown>): Promise<CallToolResult>
   const id = args.id as string;
   const mode = (args.mode as string) ?? "entry";
 
+  // Check open index first, then fall through to archive
   const index = await readIndex<PatchIndex>(PATCH_INDEX);
-  const entry = index.patches[id];
+  let entry = index.patches[id];
+  let source: "open" | "archive" = "open";
+
   if (!entry) {
-    return { content: [{ type: "text", text: `Patch ${id} not found in index` }], isError: true };
+    const archMap = await lookupPatchArchive([id]);
+    entry = archMap.get(id) ?? undefined as unknown as PatchEntry;
+    source = "archive";
+  }
+
+  if (!entry) {
+    return { content: [{ type: "text", text: `Patch ${id} not found in index or archive` }], isError: true };
   }
 
   if (mode === "human") {
     return { content: [{ type: "text", text: renderHumanView(id, entry) }] };
   }
 
-  return { content: [{ type: "text", text: JSON.stringify({ id, ...entry }, null, 2) }] };
+  return { content: [{ type: "text", text: JSON.stringify({ id, source, ...entry }, null, 2) }] };
 }
 
 async function createPatch(args: Record<string, unknown>): Promise<CallToolResult> {
@@ -300,8 +309,28 @@ async function createPatch(args: Record<string, unknown>): Promise<CallToolResul
 }
 
 async function searchPatches(args: Record<string, unknown>): Promise<CallToolResult> {
-  const query = (args.query as string).toLowerCase();
+  const query = (args.query as string | undefined)?.toLowerCase();
   const serviceFilter = args.service as string | undefined;
+  const tagsFilter = args.tags as string[] | undefined;
+
+  if (!query && !tagsFilter) {
+    return { content: [{ type: "text", text: "Provide at least query or tags" }], isError: true };
+  }
+
+  const tagsLower = tagsFilter?.map(t => t.toLowerCase());
+
+  function matchesEntry(entry: { summary: string; service: string; category: string; failure_class: string | null; tags: string[] }): boolean {
+    if (tagsLower) {
+      const entryTagsLower = entry.tags.map(t => t.toLowerCase());
+      if (!tagsLower.every(t => entryTagsLower.includes(t))) return false;
+    }
+    if (query) {
+      const searchable = [entry.summary, entry.service, entry.category, entry.failure_class ?? "", ...entry.tags]
+        .join(" ").toLowerCase();
+      if (!searchable.includes(query)) return false;
+    }
+    return true;
+  }
 
   const matches: Array<{
     id: string;
@@ -320,43 +349,46 @@ async function searchPatches(args: Record<string, unknown>): Promise<CallToolRes
     const index = await readIndex<PatchIndex>(PATCH_INDEX);
     for (const [id, entry] of Object.entries(index.patches)) {
       if (serviceFilter && entry.service !== serviceFilter) continue;
-
-      const searchable = [
-        entry.summary,
-        entry.service,
-        entry.category,
-        entry.failure_class ?? "",
-        ...entry.tags,
-      ]
-        .join(" ")
-        .toLowerCase();
-
-      if (searchable.includes(query)) {
-        matches.push({
-          id,
-          source: "open",
-          service: entry.service,
-          summary: entry.summary,
-          priority: entry.priority,
-          category: entry.category,
-          status: entry.status,
-          created: entry.created,
-          tags: entry.tags,
-        });
-      }
+      if (!matchesEntry(entry)) continue;
+      matches.push({
+        id,
+        source: "open",
+        service: entry.service,
+        summary: entry.summary,
+        priority: entry.priority,
+        category: entry.category,
+        status: entry.status,
+        created: entry.created,
+        tags: entry.tags,
+      });
     }
   } catch {
     // index may not exist yet
   }
 
   // Search archive (JSONL)
-  const archiveMatches = await searchPatchArchive(query, serviceFilter);
-  matches.push(...archiveMatches);
+  if (query) {
+    const archiveMatches = await searchPatchArchive(query, serviceFilter);
+    for (const m of archiveMatches) {
+      if (tagsLower) {
+        const mTagsLower = m.tags.map(t => t.toLowerCase());
+        if (!tagsLower.every(t => mTagsLower.includes(t))) continue;
+      }
+      matches.push(m);
+    }
+  } else if (tagsFilter) {
+    const archiveMatches = await searchPatchArchive("", serviceFilter);
+    for (const m of archiveMatches) {
+      const mTagsLower = m.tags.map(t => t.toLowerCase());
+      if (!tagsLower!.every(t => mTagsLower.includes(t))) continue;
+      matches.push(m);
+    }
+  }
 
   return {
     content: [{
       type: "text",
-      text: JSON.stringify({ query, matches_found: matches.length, matches }, null, 2),
+      text: JSON.stringify({ query: query ?? null, tags: tagsFilter ?? null, matches_found: matches.length, matches }, null, 2),
     }],
   };
 }
