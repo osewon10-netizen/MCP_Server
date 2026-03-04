@@ -11,7 +11,7 @@ import {
   BACKUP_DIR,
   SERVICE_REPOS,
 } from "../lib/paths.js";
-import { lookupTicketArchive, lookupPatchArchive } from "../lib/archive.js";
+import { lookupTicketArchive, lookupPatchArchive, appendTicketArchive, appendPatchArchive } from "../lib/archive.js";
 import type { TicketIndex, PatchIndex, TicketEntry, PatchEntry } from "../types.js";
 
 const execFileAsync = promisify(execFile);
@@ -90,6 +90,31 @@ export const tools: Tool[] = [
         force: { type: "boolean", description: "Override existing claim (default: false)" },
       },
       required: ["id", "agent"],
+    },
+  },
+  {
+    name: "batch_archive",
+    description:
+      "Archive multiple tickets and patches in one call. Auto-populates Related field across all entries in the batch. Each entry must be in archivable status (patched for TK, applied for PA).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        ids: {
+          type: "array",
+          items: { type: "string" },
+          description: "Array of TK/PA IDs to archive together",
+        },
+        verified_by: { type: "string", description: "Who verified (agent name or user)" },
+        deployed: { type: "boolean", description: "Was the fix deployed? (default: true)" },
+        health_check: { type: "string", description: "Health check result summary" },
+        outcome: {
+          type: "string",
+          enum: ["fixed", "mitigated", "false_positive", "wont_fix", "needs_followup"],
+          description: "Outcome for all entries (default: fixed)",
+        },
+        commit: { type: "string", description: "Commit SHA if applicable" },
+      },
+      required: ["ids", "verified_by"],
     },
   },
 ];
@@ -584,6 +609,160 @@ async function pickUp(args: Record<string, unknown>): Promise<CallToolResult> {
   };
 }
 
+// ─── Batch Archive ─────────────────────────────────────────────────
+
+async function batchArchive(args: Record<string, unknown>): Promise<CallToolResult> {
+  const ids = args.ids as string[];
+  const verifiedBy = args.verified_by as string;
+  const deployed = (args.deployed as boolean) ?? true;
+  const healthCheck = (args.health_check as string) ?? "not checked";
+  const outcome = (args.outcome as string) ?? "fixed";
+  const commitSha = args.commit as string | undefined;
+
+  if (!ids || ids.length === 0) {
+    return { content: [{ type: "text", text: "No IDs provided" }], isError: true };
+  }
+
+  const tkIds = ids.filter((id) => id.startsWith("TK-"));
+  const paIds = ids.filter((id) => id.startsWith("PA-"));
+  const invalidIds = ids.filter((id) => !id.startsWith("TK-") && !id.startsWith("PA-"));
+
+  // Read both indexes
+  const ticketIdx = tkIds.length > 0 ? await readIndex<TicketIndex>(TICKET_INDEX) : null;
+  const patchIdx = paIds.length > 0 ? await readIndex<PatchIndex>(PATCH_INDEX) : null;
+
+  const now = new Date().toISOString();
+  const results: Array<{ id: string; status: "archived" | "skipped"; reason?: string }> = [];
+  const warnings: string[] = [];
+
+  // Validate all entries first — collect archivable ones
+  const archivableTickets: Array<{ id: string; entry: TicketEntry }> = [];
+  const archivablePatches: Array<{ id: string; entry: PatchEntry }> = [];
+
+  for (const id of tkIds) {
+    const entry = ticketIdx?.tickets[id];
+    if (!entry) {
+      results.push({ id, status: "skipped", reason: "not found in open index (may be already archived)" });
+      continue;
+    }
+    if (entry.status !== "patched") {
+      results.push({ id, status: "skipped", reason: `must be 'patched' to archive (current: ${entry.status})` });
+      continue;
+    }
+    archivableTickets.push({ id, entry });
+  }
+
+  for (const id of paIds) {
+    const entry = patchIdx?.patches[id];
+    if (!entry) {
+      results.push({ id, status: "skipped", reason: "not found in open index (may be already archived)" });
+      continue;
+    }
+    if (entry.status !== "applied") {
+      results.push({ id, status: "skipped", reason: `must be 'applied' to archive (current: ${entry.status})` });
+      continue;
+    }
+    archivablePatches.push({ id, entry });
+  }
+
+  for (const id of invalidIds) {
+    results.push({ id, status: "skipped", reason: "invalid prefix — must start with TK- or PA-" });
+  }
+
+  // Auto-populate related: all IDs in the batch are related to each other
+  const allArchivableIds = [
+    ...archivableTickets.map((t) => t.id),
+    ...archivablePatches.map((p) => p.id),
+  ];
+
+  // Archive tickets
+  for (const { id, entry } of archivableTickets) {
+    // Merge related: existing + batch peers (exclude self, dedupe)
+    const existingRelated = entry.related ?? [];
+    const batchPeers = allArchivableIds.filter((peerId) => peerId !== id);
+    const mergedRelated = [...new Set([...existingRelated, ...batchPeers])];
+
+    // Training data quality warnings
+    if (!entry.evidence) warnings.push(`${id}: evidence is empty`);
+    if (!entry.patch_notes) warnings.push(`${id}: patch_notes is empty`);
+
+    const resolvedEntry: TicketEntry = {
+      ...entry,
+      status: "resolved",
+      outcome: outcome as TicketEntry["outcome"],
+      related: mergedRelated,
+      verification: {
+        verified_by: verifiedBy,
+        deployed,
+        health_check: healthCheck,
+        outcome,
+        verified_at: now,
+        commit: commitSha,
+      },
+      updated_at: now,
+    };
+
+    await appendTicketArchive(id, resolvedEntry);
+    delete ticketIdx!.tickets[id];
+    results.push({ id, status: "archived" });
+  }
+
+  // Archive patches
+  for (const { id, entry } of archivablePatches) {
+    const existingRelated = entry.related ?? [];
+    const batchPeers = allArchivableIds.filter((peerId) => peerId !== id);
+    const mergedRelated = [...new Set([...existingRelated, ...batchPeers])];
+
+    if (!entry.applied_notes && !entry.proposed_diff) warnings.push(`${id}: applied_notes/proposed_diff is empty`);
+
+    const verifiedEntry: PatchEntry = {
+      ...entry,
+      status: "verified",
+      outcome: outcome as PatchEntry["outcome"],
+      related: mergedRelated,
+      verified: now.slice(0, 10),
+      verified_by: verifiedBy,
+      verification: {
+        verified_by: verifiedBy,
+        deployed,
+        health_check: healthCheck,
+        outcome,
+        verified_at: now,
+        commit: commitSha,
+      },
+      updated_at: now,
+    };
+
+    await appendPatchArchive(id, verifiedEntry);
+    delete patchIdx!.patches[id];
+    results.push({ id, status: "archived" });
+  }
+
+  // Single write per index type
+  if (ticketIdx && archivableTickets.length > 0) {
+    await writeIndex(TICKET_INDEX, ticketIdx);
+  }
+  if (patchIdx && archivablePatches.length > 0) {
+    await writeIndex(PATCH_INDEX, patchIdx);
+  }
+
+  const archived = results.filter((r) => r.status === "archived").length;
+  const skipped = results.filter((r) => r.status === "skipped").length;
+
+  return {
+    content: [{
+      type: "text",
+      text: JSON.stringify({
+        success: true,
+        archived,
+        skipped,
+        results,
+        warnings: warnings.length > 0 ? warnings : undefined,
+      }, null, 2),
+    }],
+  };
+}
+
 // ─── Dispatch ───────────────────────────────────────────────────────
 
 export async function handleCall(name: string, args: Record<string, unknown>): Promise<CallToolResult> {
@@ -594,6 +773,7 @@ export async function handleCall(name: string, args: Record<string, unknown>): P
     case "my_queue": return myQueue(args);
     case "peek": return peek(args);
     case "pick_up": return pickUp(args);
+    case "batch_archive": return batchArchive(args);
     default:
       return { content: [{ type: "text", text: `Unknown tool: ${name}` }], isError: true };
   }
