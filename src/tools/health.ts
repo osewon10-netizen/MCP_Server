@@ -101,7 +101,13 @@ async function pm2Status(args: Record<string, unknown>): Promise<CallToolResult>
 async function serviceHealth(args: Record<string, unknown>): Promise<CallToolResult> {
   const service = args.service as string;
   try {
-    const state = await mantisQuery<MantisServiceState>("services.byName", { service });
+    const state = await mantisQuery<MantisServiceState | null>("services.byName", { service });
+    if (state === null || state === undefined) {
+      return {
+        content: [{ type: "text", text: `MANTIS has no health record for "${service}" — watchdog may not be tracking it yet.` }],
+        isError: true,
+      };
+    }
     return { content: [{ type: "text", text: JSON.stringify(state, null, 2) }] };
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -224,7 +230,7 @@ async function tailServiceUrl(args: Record<string, unknown>): Promise<CallToolRe
   }
 }
 
-const SELF_PM2_NAME = "minimart";
+const SELF_PM2_NAME = process.env.name ?? "minimart";
 
 async function pm2Restart(args: Record<string, unknown>): Promise<CallToolResult> {
   const service = args.service as string;

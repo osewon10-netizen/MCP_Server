@@ -1,12 +1,25 @@
 import { MANTIS_TRPC_URL } from "./paths.js";
 
+// MANTIS uses tRPC 11 with the SuperJSON transformer. This has two consequences:
+//
+// INPUTS (queries): must be wrapped as { json: <input> } in the "input" query param.
+//   Wrong:  ?input={"service":"foo"}
+//   Right:  ?input={"json":{"service":"foo"}}
+//   Bug history: TK-067 — forgetting the { json: } envelope caused all queries to fail.
+//
+// OUTPUTS (responses): tRPC wraps the result as { result: { data: <SuperJSON envelope> } }
+//   and SuperJSON further wraps the actual value as { json: <value>, meta?: ... }.
+//   We unwrap both layers before returning.
+//   Bug history: TK-069 — callers received the raw { json: value } envelope instead of value.
+
 /**
  * Call a MANTIS tRPC query procedure via HTTP GET.
- * MANTIS uses SuperJSON transformer, but for simple queries the response
- * is typically plain JSON. We handle both cases.
  *
- * @param procedure - e.g., "services.list", "events.summary"
- * @param input - query input (optional)
+ * Input is automatically wrapped in the SuperJSON envelope { json: input } required by
+ * tRPC 11 + SuperJSON. Response is unwrapped from { result: { data: { json: value } } }.
+ *
+ * @param procedure - e.g., "services.list", "services.byName", "events.summary"
+ * @param input - query input (optional). Do NOT pre-wrap — this function handles it.
  */
 export async function mantisQuery<T = unknown>(
   procedure: string,
@@ -14,7 +27,7 @@ export async function mantisQuery<T = unknown>(
 ): Promise<T> {
   const url = new URL(`${MANTIS_TRPC_URL}/${procedure}`);
   if (input) {
-    // tRPC 11 with SuperJSON transformer expects input wrapped as { json: <input> }
+    // SuperJSON transformer requires input wrapped as { json: <input> } (TK-067)
     url.searchParams.set("input", JSON.stringify({ json: input }));
   }
 
@@ -30,8 +43,8 @@ export async function mantisQuery<T = unknown>(
   }
 
   const json = await res.json();
-  // tRPC wraps response in { result: { data: ... } }
-  // SuperJSON transformer further wraps data as { json: <value>, meta?: ... }
+  // Unwrap tRPC envelope: { result: { data: ... } }
+  // Then unwrap SuperJSON envelope: { json: <value>, meta?: ... } (TK-069)
   const data = json?.result?.data;
   return (data !== null && typeof data === "object" && "json" in data ? data.json : data) as T;
 }
@@ -39,8 +52,11 @@ export async function mantisQuery<T = unknown>(
 /**
  * Call a MANTIS tRPC mutation procedure via HTTP POST.
  *
+ * Input body is wrapped in the SuperJSON envelope { json: input } required by
+ * tRPC 11 + SuperJSON. Response is unwrapped from { result: { data: { json: value } } }.
+ *
  * @param procedure - e.g., "runner.execute", "rules.toggle"
- * @param input - mutation input
+ * @param input - mutation input. Do NOT pre-wrap — this function handles it.
  */
 export async function mantisMutation<T = unknown>(
   procedure: string,
@@ -49,6 +65,7 @@ export async function mantisMutation<T = unknown>(
   const res = await fetch(`${MANTIS_TRPC_URL}/${procedure}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
+    // SuperJSON transformer requires body wrapped as { json: input } (TK-067)
     body: JSON.stringify({ json: input }),
     signal: AbortSignal.timeout(30000),
   });
@@ -59,6 +76,7 @@ export async function mantisMutation<T = unknown>(
   }
 
   const json = await res.json();
+  // Unwrap tRPC + SuperJSON envelopes (TK-069)
   const data = json?.result?.data;
   return (data !== null && typeof data === "object" && "json" in data ? data.json : data) as T;
 }
