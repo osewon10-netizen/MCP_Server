@@ -55,6 +55,7 @@ export const OLLAMA_WORKSPACE = `${SERVER_ROOT}/agent/ollama`;
 export const OLLAMA_TASKS = `${OLLAMA_WORKSPACE}/tasks`;
 export const OLLAMA_RESULTS = `${OLLAMA_WORKSPACE}/results`;
 export const OLLAMA_MEMORY = `${OLLAMA_WORKSPACE}/memory`;
+export const OC_INDEX = path.join(OLLAMA_TASKS, "index.json");
 
 // MCP server config
 export const MCP_PORT = 6974;

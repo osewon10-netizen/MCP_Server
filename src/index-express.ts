@@ -21,6 +21,10 @@ const ALLOWED_TOOLS = [
   "git_status",       // read-only git
   "service_registry", // read-only metadata
   "get_checklist",    // read-only checklists
+  "create_oc_task",   // OC task CRUD
+  "list_oc_tasks",    // OC task CRUD
+  "view_oc_task",     // OC task CRUD
+  "update_oc_task",   // OC task CRUD
 ] as const;
 
 const ALLOWED_SET = new Set<string>(ALLOWED_TOOLS);

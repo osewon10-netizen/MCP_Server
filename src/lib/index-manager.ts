@@ -1,12 +1,12 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import type { TicketIndex, PatchIndex } from "../types.js";
+import type { TicketIndex, PatchIndex, OcIndex } from "../types.js";
 
 /**
  * Read and parse an index.json file.
  * Returns typed TicketIndex or PatchIndex.
  */
-export async function readIndex<T extends TicketIndex | PatchIndex>(
+export async function readIndex<T extends TicketIndex | PatchIndex | OcIndex>(
   indexPath: string
 ): Promise<T> {
   const raw = await fs.readFile(indexPath, "utf-8");
@@ -22,7 +22,7 @@ export async function readIndex<T extends TicketIndex | PatchIndex>(
  * 5. Atomic rename .tmp → index.json
  * On failure: restore .bak, preserve corrupt file as evidence.
  */
-export async function writeIndex<T extends TicketIndex | PatchIndex>(
+export async function writeIndex<T extends TicketIndex | PatchIndex | OcIndex>(
   indexPath: string,
   data: T
 ): Promise<void> {
@@ -108,6 +108,15 @@ export function generateSlug(
   const svcSlug = service.replace(/_/g, "-");
   const descSlug = slugify(summary, 40);
   return `${id}_${svcSlug}_${descSlug}_${date}`;
+}
+
+/**
+ * Allocate the next OC task ID.
+ */
+export function allocateOcId(index: OcIndex): { id: string; nextId: number } {
+  const num = index.next_id;
+  const id = `OC-${String(num).padStart(3, "0")}`;
+  return { id, nextId: num + 1 };
 }
 
 /** @deprecated Use generateSlug. Kept for migration compatibility. */

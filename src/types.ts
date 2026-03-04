@@ -111,6 +111,25 @@ export interface PatchIndex {
   patches: Record<string, PatchEntry>;
 }
 
+// === OC (Ollama Churns) Task Types ===
+
+export interface OcTaskEntry {
+  summary: string;
+  task_type: string;        // "code_review" | "log_digest" | "archive_normalize" | etc
+  service?: string;         // target service, if applicable
+  status: "open" | "completed";
+  created: string;          // YYYY-MM-DD
+  created_by: string;       // "mini" or "cron"
+  completed_at?: string;    // ISO timestamp
+  result_path?: string;     // relative path to results file in ollama workspace
+  notes?: string;           // completion notes or error info
+}
+
+export interface OcIndex {
+  next_id: number;
+  tasks: Record<string, OcTaskEntry>;
+}
+
 // === Tag System ===
 
 export interface TagMap {

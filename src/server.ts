@@ -24,6 +24,7 @@ import * as overviewMod from "./tools/overview.js";
 import * as filesMod from "./tools/files.js";
 import * as networkMod from "./tools/network.js";
 import * as trainingMod from "./tools/training.js";
+import * as ocMod from "./tools/oc.js";
 
 type ToolHandler = (name: string, args: Record<string, unknown>) => Promise<CallToolResult>;
 
@@ -51,6 +52,7 @@ const toolModules: ToolModule[] = [
   filesMod,
   networkMod,
   trainingMod,
+  ocMod,
 ];
 
 export interface ServerConfig {
