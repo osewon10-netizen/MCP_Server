@@ -2,6 +2,7 @@ import type { Tool, CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import type { OcIndex } from "../types.js";
 import { OC_INDEX } from "../lib/paths.js";
 import { readIndex, writeIndex, allocateOcId } from "../lib/index-manager.js";
+import { VALID_TASK_TYPES } from "../lib/task-registry.js";
 
 // ─── Tool Definitions ───────────────────────────────────────────────
 
@@ -65,6 +66,14 @@ async function createOcTask(args: Record<string, unknown>): Promise<CallToolResu
   const summary = args.summary as string;
   const createdBy = args.created_by as string;
   const service = args.service as string | undefined;
+
+  if (!VALID_TASK_TYPES.has(taskType)) {
+    const valid = [...VALID_TASK_TYPES].join(", ");
+    return {
+      content: [{ type: "text", text: `Unknown task_type: ${taskType}. Valid: ${valid}` }],
+      isError: true,
+    };
+  }
 
   const index = await readIndex<OcIndex>(OC_INDEX);
   const { id, nextId } = allocateOcId(index);

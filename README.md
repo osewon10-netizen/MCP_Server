@@ -1,15 +1,15 @@
 # minimart
 
-MCP (Model Context Protocol) server that bridges AI agents to Sewon's infrastructure on Mac Mini. Exposes 58 structured tools over HTTP — ticketing with agent handoffs, deployments, health monitoring, MANTIS proxy, git operations, file access, network metrics, training data export, local LLM inference, and Ollama task management.
+MCP (Model Context Protocol) server that bridges AI agents to Sewon's infrastructure on Mac Mini. Exposes 59 structured tools over HTTP — ticketing with agent handoffs, deployments, health monitoring, MANTIS proxy, git operations, file access, network metrics, training data export, local LLM inference, and Ollama task management.
 
 ## Why This Exists
 
 Multiple AI agents (Claude Code, Codex, Gemini CLI, OpenClaw) need structured access to the same infrastructure. Instead of each agent implementing its own SSH commands and file parsing, this server provides a single, typed tool interface over MCP. Dev rig agents reach it via SSH tunnel (forwarded to localhost); agents on Mini hit it locally.
 
 ```
-Dev rig agents ──── SSH tunnel → localhost:16974 ──→ minimart (port 6974, all 58 tools)
-Mini-side agents ── localhost:6974 ─────────────────→ minimart (port 6974, all 58 tools)
-Ollama agent ────── localhost:6975 ─────────────────→ minimart_express (19 tools, scoped)
+Dev rig agents ──── SSH tunnel → localhost:16974 ──→ minimart (port 6974, all 59 tools)
+Mini-side agents ── localhost:6974 ─────────────────→ minimart (port 6974, all 59 tools)
+Ollama agent ────── localhost:6975 ─────────────────→ minimart_express (26 tools, scoped)
                                                         │
                                                         ├─→ MANTIS (localhost:3200)
                                                         ├─→ PM2 CLI
@@ -53,11 +53,11 @@ The server follows a simple three-layer pattern:
 
 **Layer 1 — HTTP entry**: Two entry points serve different audiences:
 - `src/index.ts` (port 6974) — Full server for frontier agents (Claude, Codex, Gemini). All 58 tools, no restrictions.
-- `src/index-express.ts` (port 6975) — Scoped server for the local Ollama agent (Qwen3 4B). 19 tools allowlisted, localhost-only, concurrency-limited (max 4), fail-closed dispatch.
+- `src/index-express.ts` (port 6975) — Scoped server for the local Ollama agent (Qwen3 4B). 26 tools allowlisted, localhost-only, concurrency-limited (max 4), fail-closed dispatch.
 
 Both use bare `node:http` with two routes: `POST /mcp` and `GET /health`. Stateless — each request gets a fresh transport + server instance.
 
-**Layer 2 — MCP dispatch** (`src/server.ts`): Parameterized server factory `createServer(config?)`. Registers 19 tool modules. When `allowedTools` is set, `tools/list` returns only permitted tools and `tools/call` rejects anything not in the set. Startup validation crashes if the allowlist contains unknown tool names.
+**Layer 2 — MCP dispatch** (`src/server.ts`): Parameterized server factory `createServer(config?)`. Registers 20 tool modules. When `allowedTools` is set, `tools/list` returns only permitted tools and `tools/call` rejects anything not in the set. Startup validation crashes if the allowlist contains unknown tool names.
 
 **Layer 3 — Tool modules** (`src/tools/*.ts`): Each module exports `tools: Tool[]` (MCP definitions) and `handleCall(name, args)` (implementation). Tools talk to MANTIS, PM2, Ollama, git, or the local filesystem.
 
@@ -72,7 +72,7 @@ Both use bare `node:http` with two routes: `POST /mcp` and `GET /health`. Statel
 | Local LLM | Ollama (localhost:11434) | REST API |
 | Service metadata | In-memory registry | Hardcoded in `registry.ts` |
 
-## Tools (58 total)
+## Tools (59 total)
 
 ### Ticketing & Handoffs (22)
 - `create_ticket` / `list_tickets` / `view_ticket` / `search_tickets` / `update_ticket` / `update_ticket_status` / `archive_ticket` / `assign_ticket`
@@ -140,18 +140,19 @@ Both use bare `node:http` with two routes: `POST /mcp` and `GET /health`. Statel
 ### Network (1)
 - `network_quality` — measure latency/jitter/packet loss, record as JSONL time-series
 
-### Ollama Tasks (4)
-- `create_oc_task` — create an OC (Ollama Churns) work item (code review, log digest, etc.)
+### Ollama Tasks (5)
+- `create_oc_task` — create an OC (Ollama Churns) work item, validates task_type against registry
 - `list_oc_tasks` — list OC tasks, filter by status or task_type
 - `view_oc_task` — view a single OC task by ID
 - `update_oc_task` — update status/notes/result_path, auto-sets completed_at
+- `get_task_config` — get execution config + prompt template for a task type (or list all 12 types)
 
 ## Project Structure
 
 ```
 src/
 ├── index.ts              # HTTP entry point — full server (port 6974, all tools)
-├── index-express.ts      # HTTP entry point — scoped server (port 6975, 19 tools)
+├── index-express.ts      # HTTP entry point — scoped server (port 6975, 26 tools)
 ├── server.ts             # MCP server factory + tool dispatch (parameterized allowlist)
 ├── types.ts              # Shared TypeScript interfaces
 ├── lib/                  # Shared utilities
@@ -162,8 +163,9 @@ src/
 │   ├── failure-validator.ts  # Failure class validation
 │   ├── mantis-client.ts      # HTTP client → MANTIS tRPC
 │   ├── pm2-client.ts         # PM2 CLI wrapper
-│   └── ollama-client.ts      # Ollama REST client
-└── tools/                # 19 tool modules (58 tools total)
+│   ├── ollama-client.ts      # Ollama REST client
+│   └── task-registry.ts     # OC task type configs (12 types) + validation set
+└── tools/                # 20 tool modules (59 tools total)
     ├── tickets.ts        # Ticket CRUD + search + archive + assign
     ├── patches.ts        # Patch CRUD + search + archive + assign
     ├── tags.ts           # Tag normalization
@@ -182,7 +184,8 @@ src/
     ├── training.ts       # Training data export from archive
     ├── files.ts          # Scoped file read/write (workspace varies by server)
     ├── network.ts        # Network quality metrics
-    └── oc.ts             # Ollama Churns task CRUD (OC-XXX lifecycle)
+    ├── oc.ts             # Ollama Churns task CRUD (OC-XXX lifecycle)
+    └── task-config.ts    # Task type registry + prompt template loader
 ```
 
 ## Development
@@ -227,8 +230,8 @@ pm2 monit
 ```
 
 PM2 config:
-- `minimart` — 256M memory limit, all 58 tools, logs to `logs/minimart/`
-- `minimart_express` — 128M memory limit, 19 tools, localhost-only, file workspace scoped to `agent/ollama/`, logs to `logs/minimart_express/`
+- `minimart` — 256M memory limit, all 59 tools, logs to `logs/minimart/`
+- `minimart_express` — 128M memory limit, 26 tools, localhost-only, file workspace scoped to `agent/ollama/`, logs to `logs/minimart_express/`
 
 ### Agent Registration
 
@@ -240,7 +243,7 @@ claude mcp add --transport http minimart http://localhost:6974/mcp
 # First: ssh -L 16974:localhost:6974 minmac.serv@100.126.124.95 -N
 claude mcp add --transport http minimart http://localhost:16974/mcp
 
-# Ollama agent on Mini — scoped access (19 tools, localhost only)
+# Ollama agent on Mini — scoped access (26 tools, localhost only)
 # Configured via task runner cron, not manual registration
 ```
 

@@ -57,6 +57,9 @@ export const OLLAMA_RESULTS = `${OLLAMA_WORKSPACE}/results`;
 export const OLLAMA_MEMORY = `${OLLAMA_WORKSPACE}/memory`;
 export const OC_INDEX = path.join(OLLAMA_TASKS, "index.json");
 
+// OC task prompt templates (repo root, not src/ — tsc doesn't copy .md)
+export const PROMPTS_DIR = path.join(SERVER_ROOT, "minimart/prompts");
+
 // MCP server config
 export const MCP_PORT = 6974;
 export const EXPRESS_MCP_PORT = 6975;

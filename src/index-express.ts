@@ -25,6 +25,13 @@ const ALLOWED_TOOLS = [
   "list_oc_tasks",    // OC task CRUD
   "view_oc_task",     // OC task CRUD
   "update_oc_task",   // OC task CRUD
+  "get_task_config",       // task type registry + prompt templates
+  "list_tickets",          // stale_ticket task (read-only)
+  "list_patches",          // stale_ticket task (read-only)
+  "export_training_data",  // archive_normalize task (read-only)
+  "lookup_tags",           // ticket_enrich task (read-only)
+  "validate_failure_class",// ticket_enrich task (read-only)
+  "get_ticketing_guide",   // ticket_enrich context (read-only)
 ] as const;
 
 const ALLOWED_SET = new Set<string>(ALLOWED_TOOLS);
