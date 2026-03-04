@@ -14,8 +14,8 @@ export async function mantisQuery<T = unknown>(
 ): Promise<T> {
   const url = new URL(`${MANTIS_TRPC_URL}/${procedure}`);
   if (input) {
-    // tRPC 11 expects input as JSON-encoded query param
-    url.searchParams.set("input", JSON.stringify(input));
+    // tRPC 11 with SuperJSON transformer expects input wrapped as { json: <input> }
+    url.searchParams.set("input", JSON.stringify({ json: input }));
   }
 
   const res = await fetch(url.toString(), {
@@ -47,7 +47,7 @@ export async function mantisMutation<T = unknown>(
   const res = await fetch(`${MANTIS_TRPC_URL}/${procedure}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(input),
+    body: JSON.stringify({ json: input }),
     signal: AbortSignal.timeout(30000),
   });
 
