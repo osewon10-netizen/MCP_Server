@@ -57,12 +57,13 @@ function renderHumanView(id: string, e: PatchEntry): string {
 export const tools: Tool[] = [
   {
     name: "list_patches",
-    description: "List patches from the index, optionally filtered by service and/or status.",
+    description: "List patches from the index, optionally filtered by service, status, and/or assigned_to.",
     inputSchema: {
       type: "object",
       properties: {
         service: { type: "string", description: "Filter by service name" },
         status: { type: "string", description: "Filter by status (open, in-review, applied, verified, rejected)" },
+        assigned_to: { type: "string", description: "Filter by assigned_to (exact match)" },
       },
     },
   },
@@ -187,12 +188,14 @@ export const tools: Tool[] = [
 async function listPatches(args: Record<string, unknown>): Promise<CallToolResult> {
   const service = args.service as string | undefined;
   const status = args.status as string | undefined;
+  const assignedTo = args.assigned_to as string | undefined;
 
   const index = await readIndex<PatchIndex>(PATCH_INDEX);
   let entries = Object.entries(index.patches);
 
   if (service) entries = entries.filter(([, e]) => e.service === service);
   if (status) entries = entries.filter(([, e]) => e.status === status);
+  if (assignedTo) entries = entries.filter(([, e]) => e.assigned_to === assignedTo);
 
   const result = entries.map(([id, e]) => ({
     id,
