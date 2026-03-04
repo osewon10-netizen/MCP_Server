@@ -64,8 +64,16 @@ export interface ServerConfig {
   allowedTools?: Set<string>;
 }
 
+export function getRegisteredToolDefinitions(): Tool[] {
+  return toolModules.flatMap((m) => m.tools);
+}
+
+export function getRegisteredToolNames(): string[] {
+  return getRegisteredToolDefinitions().map((t) => t.name);
+}
+
 function getAllToolDefinitions(allowed?: Set<string>): Tool[] {
-  const all = toolModules.flatMap((m) => m.tools);
+  const all = getRegisteredToolDefinitions();
   if (!allowed) return all;
   return all.filter((t) => allowed.has(t.name));
 }
@@ -99,7 +107,7 @@ async function dispatchTool(
  * Throws on startup if any name doesn't match (catches typos and renames).
  */
 export function validateAllowlist(allowed: Set<string>): void {
-  const allNames = new Set(toolModules.flatMap((m) => m.tools).map((t) => t.name));
+  const allNames = new Set(getRegisteredToolNames());
   const bad = [...allowed].filter((name) => !allNames.has(name));
   if (bad.length > 0) {
     throw new Error(`Allowlist contains unknown tool names: ${bad.join(", ")}`);
@@ -126,4 +134,3 @@ export function createServer(config?: ServerConfig): Server {
 
   return server;
 }
-

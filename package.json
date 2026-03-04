@@ -6,7 +6,9 @@
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
-    "start": "node build/index.js"
+    "start": "node build/index.js",
+    "test:contract": "npm run build && node --test tests/contract/*.test.mjs",
+    "test": "npm run test:contract"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.12.0",

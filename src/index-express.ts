@@ -2,51 +2,10 @@ import { createServer, validateAllowlist } from "./server.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { createServer as createHttpServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { EXPRESS_MCP_PORT, OLLAMA_WORKSPACE } from "./lib/paths.js";
-
-// ─── Allowlist (verified against full registry on boot) ────────────
-
-const ALLOWED_TOOLS = [
-  "file_read",        // scoped to ollama workspace via env
-  "file_write",       // scoped to ollama workspace via env
-  "read_source_file", // read-only source files from service repos (50KB cap)
-  "ollama_generate",  // local inference
-  "ollama_models",    // list available models
-  "service_logs",     // read-only logs
-  "search_logs",      // read-only log grep (100KB cap)
-  "pm2_status",       // read-only process status
-  "backup_status",    // read-only backup info
-  "service_health",   // read-only health
-  "disk_usage",       // read-only disk
-  "git_log",          // read-only git
-  "git_diff",         // read-only git
-  "git_status",       // read-only git
-  "service_registry", // read-only metadata
-  "get_checklist",    // read-only checklists
-  "create_oc_task",   // OC task CRUD
-  "list_oc_tasks",    // OC task CRUD
-  "view_oc_task",     // OC task CRUD
-  "update_oc_task",   // OC task CRUD
-  "get_task_config",       // task type registry + prompt templates
-  "list_tickets",          // stale_ticket task (read-only)
-  "list_patches",          // stale_ticket task (read-only)
-  "search_tickets",        // archive search (read-only)
-  "search_patches",        // archive search (read-only)
-  "export_training_data",  // archive_normalize task (read-only)
-  "lookup_tags",           // ticket_enrich task (read-only)
-  "validate_failure_class",// ticket_enrich task (read-only)
-  "get_ticketing_guide",   // ticket_enrich context (read-only)
-  "archive_oc_task",       // OC task archive (runner calls after completion)
-  "list_oc_archive",       // OC archive search (read-only)
-] as const;
-
-const ALLOWED_SET = new Set<string>(ALLOWED_TOOLS);
-
-// ─── Concurrency guard ─────────────────────────────────────────────
+import { EXPRESS_ALLOWED_SET, EXPRESS_ALLOWED_TOOLS } from "./lib/express-allowlist.js";
 
 const MAX_CONCURRENT_REQUESTS = 4;
 let inFlight = 0;
-
-// ─── Helpers ────────────────────────────────────────────────────────
 
 async function parseJsonBody(req: IncomingMessage): Promise<unknown> {
   return new Promise((resolve, reject) => {
@@ -65,9 +24,9 @@ async function parseJsonBody(req: IncomingMessage): Promise<unknown> {
 }
 
 async function handleMcp(req: IncomingMessage, res: ServerResponse): Promise<void> {
-  const server = createServer({ name: "minimart_express", allowedTools: ALLOWED_SET });
+  const server = createServer({ name: "minimart_express", allowedTools: EXPRESS_ALLOWED_SET });
   const transport = new StreamableHTTPServerTransport({
-    sessionIdGenerator: undefined, // stateless
+    sessionIdGenerator: undefined,
   });
 
   await server.connect(transport);
@@ -76,17 +35,12 @@ async function handleMcp(req: IncomingMessage, res: ServerResponse): Promise<voi
   await transport.handleRequest(req, res, body);
 }
 
-// ─── Main ───────────────────────────────────────────────────────────
-
 async function main(): Promise<void> {
-  // Set file workspace before any tool calls
   process.env.MINIMART_FILE_WORKSPACE = process.env.MINIMART_FILE_WORKSPACE ?? OLLAMA_WORKSPACE;
 
-  // Validate allowlist against actual tool registry — crash on bad names
-  validateAllowlist(ALLOWED_SET);
+  validateAllowlist(EXPRESS_ALLOWED_SET);
 
   const httpServer = createHttpServer(async (req, res) => {
-    // Concurrency guard
     if (req.method === "POST" && req.url === "/mcp") {
       if (inFlight >= MAX_CONCURRENT_REQUESTS) {
         res.writeHead(429, { "Content-Type": "application/json" });
@@ -120,7 +74,7 @@ async function main(): Promise<void> {
 
   httpServer.listen(EXPRESS_MCP_PORT, "127.0.0.1", () => {
     const workspace = process.env.MINIMART_FILE_WORKSPACE;
-    console.error(`minimart_express started | tools: ${ALLOWED_TOOLS.length} | workspace: ${workspace} | port: ${EXPRESS_MCP_PORT}`);
+    console.error(`minimart_express started | tools: ${EXPRESS_ALLOWED_TOOLS.length} | workspace: ${workspace} | port: ${EXPRESS_MCP_PORT}`);
   });
 }
 
