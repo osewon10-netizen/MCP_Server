@@ -29,6 +29,8 @@ const ALLOWED_TOOLS = [
   "get_task_config",       // task type registry + prompt templates
   "list_tickets",          // stale_ticket task (read-only)
   "list_patches",          // stale_ticket task (read-only)
+  "search_tickets",        // archive search (read-only)
+  "search_patches",        // archive search (read-only)
   "export_training_data",  // archive_normalize task (read-only)
   "lookup_tags",           // ticket_enrich task (read-only)
   "validate_failure_class",// ticket_enrich task (read-only)

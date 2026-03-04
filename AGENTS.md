@@ -2,7 +2,7 @@
 
 ## 1. Identity
 
-**What:** MCP (Model Context Protocol) server exposing 64 structured tools over HTTP for multi-agent ops across 4 service repos on Mini. Also runs a scoped instance (`minimart_express`) on port 6975 with 28 tools for the local Ollama agent.
+**What:** MCP (Model Context Protocol) server exposing 64 structured tools over HTTP for multi-agent ops across 4 service repos on Mini. Also runs a scoped instance (`minimart_express`) on port 6975 with 30 tools for the local Ollama agent.
 
 **Who uses it:** Claude Code (Opus/Sonnet), Codex, Gemini CLI, OpenClaw — any agent that speaks MCP over HTTP.
 
@@ -37,7 +37,7 @@ mini_cp_server/
 │
 ├── src/
 │   ├── index.ts              # HTTP entry — POST /mcp, GET /health (port 6974)
-│   ├── index-express.ts      # Scoped HTTP entry — 28 tools, localhost:6975, concurrency guard
+│   ├── index-express.ts      # Scoped HTTP entry — 30 tools, localhost:6975, concurrency guard
 │   ├── server.ts             # MCP server factory — registers 21 tool modules, optional allowlist
 │   ├── types.ts              # All shared interfaces (Ticket, Patch, MANTIS, etc.)
 │   │
@@ -520,7 +520,7 @@ A second MCP server instance for the local Ollama agent (Qwen3 4B). Same codebas
 | Tools | 28 (read-only + file ops + OC task CRUD/archive + task config + ticket/patch reads, scoped to ollama workspace) |
 | Concurrency | Max 4 concurrent requests (429 if exceeded) |
 
-**Allowed tools:** `file_read`, `file_write`, `ollama_generate`, `ollama_models`, `service_logs`, `search_logs`, `pm2_status`, `backup_status`, `service_health`, `disk_usage`, `git_log`, `git_diff`, `git_status`, `service_registry`, `get_checklist`, `create_oc_task`, `list_oc_tasks`, `view_oc_task`, `update_oc_task`, `get_task_config`, `list_tickets`, `list_patches`, `export_training_data`, `lookup_tags`, `validate_failure_class`, `get_ticketing_guide`, `archive_oc_task`, `list_oc_archive`
+**Allowed tools:** `file_read`, `file_write`, `ollama_generate`, `ollama_models`, `service_logs`, `search_logs`, `pm2_status`, `backup_status`, `service_health`, `disk_usage`, `git_log`, `git_diff`, `git_status`, `service_registry`, `get_checklist`, `create_oc_task`, `list_oc_tasks`, `view_oc_task`, `update_oc_task`, `get_task_config`, `list_tickets`, `list_patches`, `search_tickets`, `search_patches`, `export_training_data`, `lookup_tags`, `validate_failure_class`, `get_ticketing_guide`, `archive_oc_task`, `list_oc_archive`
 
 **Blocked:** Ticket/patch create/update/archive/assign, deploy, rollback, pm2_restart, run_wrapper, mantis mutations, set_context, get_context, overview tools, network_quality, cron tools
 
