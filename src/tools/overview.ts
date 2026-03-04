@@ -62,6 +62,7 @@ export const tools: Tool[] = [
       properties: {
         agent: { type: "string", description: "Agent or team identifier (e.g. dev.minimart, mini)" },
         prefix: { type: "boolean", description: "Match by prefix instead of exact (default: false)" },
+        since: { type: "string", description: "ISO timestamp — only return entries created or updated after this time" },
       },
       required: ["agent"],
     },
@@ -368,6 +369,17 @@ async function resolveEntry(id: string): Promise<{ type: "ticket" | "patch"; ent
 async function myQueue(args: Record<string, unknown>): Promise<CallToolResult> {
   const agent = args.agent as string;
   const prefix = (args.prefix as boolean) ?? false;
+  const sinceRaw = args.since as string | undefined;
+  const sinceMs = sinceRaw ? Date.parse(sinceRaw) : null;
+  if (sinceRaw && isNaN(sinceMs!)) {
+    return { content: [{ type: "text", text: `Invalid since timestamp: "${sinceRaw}"` }], isError: true };
+  }
+
+  function isAfterSince(entry: { updated_at?: string; created: string }): boolean {
+    if (sinceMs === null) return true;
+    const ts = entry.updated_at ?? entry.created;
+    return Date.parse(ts) > sinceMs;
+  }
 
   const [ticketsResult, patchesResult] = await Promise.allSettled([
     readIndex<TicketIndex>(TICKET_INDEX),
@@ -390,7 +402,7 @@ async function myQueue(args: Record<string, unknown>): Promise<CallToolResult> {
 
   if (ticketIdx) {
     for (const [id, e] of Object.entries(ticketIdx.tickets)) {
-      if (matchesAgent(e.assigned_to, agent, prefix)) {
+      if (matchesAgent(e.assigned_to, agent, prefix) && isAfterSince(e)) {
         tickets.push({
           id,
           service: e.service,
@@ -420,7 +432,7 @@ async function myQueue(args: Record<string, unknown>): Promise<CallToolResult> {
 
   if (patchIdx) {
     for (const [id, e] of Object.entries(patchIdx.patches)) {
-      if (matchesAgent(e.assigned_to, agent, prefix)) {
+      if (matchesAgent(e.assigned_to, agent, prefix) && isAfterSince(e)) {
         patches.push({
           id,
           service: e.service,
@@ -440,7 +452,7 @@ async function myQueue(args: Record<string, unknown>): Promise<CallToolResult> {
   return {
     content: [{
       type: "text",
-      text: JSON.stringify({ agent, tickets, patches }, null, 2),
+      text: JSON.stringify({ agent, since: sinceRaw ?? null, tickets, patches }, null, 2),
     }],
   };
 }
