@@ -28,7 +28,7 @@ export const tools: Tool[] = [
   },
   {
     name: "deploy",
-    description: "Deploy a service via MANTIS runner. Refuses if service is in critical state.",
+    description: "Deploy a service via MANTIS runner. Refuses if service is in critical state. Owner-only — agent callers will receive 403. Use run_wrapper with the appropriate deploy script instead.",
     inputSchema: {
       type: "object",
       properties: {
@@ -40,7 +40,7 @@ export const tools: Tool[] = [
   },
   {
     name: "rollback",
-    description: "Rollback a service to the previous deployment via MANTIS runner.",
+    description: "Rollback a service to the previous deployment via MANTIS runner. Owner-only — agent callers will receive 403. Use run_wrapper with the appropriate deploy script instead.",
     inputSchema: {
       type: "object",
       properties: {

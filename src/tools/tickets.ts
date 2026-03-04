@@ -77,6 +77,22 @@ export const tools: Tool[] = [
     },
   },
   {
+    name: "update_ticket",
+    description: "Append structured content to specific sections of a ticket (evidence, evidence_refs, patch_notes, verification, related). Works regardless of current file rename state.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: { type: "string", description: "Ticket ID, e.g. TK-049" },
+        evidence: { type: "string", description: "Append to the Evidence section" },
+        evidence_refs: { type: "string", description: "Append to the Evidence Refs section" },
+        patch_notes: { type: "string", description: "Append to the Patch Notes section" },
+        verification: { type: "string", description: "Append to the Verification section" },
+        related: { type: "string", description: "Set the Related field in the metadata table (e.g. 'TK-071, PA-084')" },
+      },
+      required: ["id"],
+    },
+  },
+  {
     name: "update_ticket_status",
     description: "Advance a ticket's status. Transitions: open → patched → resolved. Renames file and updates/archives index entry.",
     inputSchema: {
@@ -299,6 +315,91 @@ async function searchTickets(args: Record<string, unknown>): Promise<CallToolRes
   };
 }
 
+async function updateTicket(args: Record<string, unknown>): Promise<CallToolResult> {
+  const id = args.id as string;
+  const evidence = args.evidence as string | undefined;
+  const evidenceRefs = args.evidence_refs as string | undefined;
+  const patchNotes = args.patch_notes as string | undefined;
+  const verification = args.verification as string | undefined;
+  const related = args.related as string | undefined;
+
+  if (!evidence && !evidenceRefs && !patchNotes && !verification && !related) {
+    return { content: [{ type: "text", text: "No fields provided — specify at least one of: evidence, evidence_refs, patch_notes, verification, related" }], isError: true };
+  }
+
+  // Resolve file path via index (handles renamed files)
+  const index = await readIndex<TicketIndex>(TICKET_INDEX);
+  const entry = index.tickets[id];
+  if (!entry) {
+    return { content: [{ type: "text", text: `Ticket ${id} not found in index` }], isError: true };
+  }
+
+  const filePath = path.join(TICKET_DIR, entry.file);
+  let content: string;
+  try {
+    content = await fs.readFile(filePath, "utf-8");
+  } catch {
+    return { content: [{ type: "text", text: `File not found: ${entry.file}` }], isError: true };
+  }
+
+  if (evidence) {
+    content = content.replace(
+      /### Evidence\n\n<!-- To be filled by investigating agent -->/,
+      `### Evidence\n\n${evidence}`
+    );
+    // If already filled, append
+    if (!content.includes(evidence)) {
+      content = content.replace(/### Evidence\n\n/, `### Evidence\n\n${evidence}\n\n`);
+    }
+  }
+
+  if (evidenceRefs) {
+    content = content.replace(
+      /### Evidence Refs\n\n<!-- optional on open, REQUIRED on patched\/resolved -->/,
+      `### Evidence Refs\n\n${evidenceRefs}`
+    );
+    if (!content.includes(evidenceRefs)) {
+      content = content.replace(/### Evidence Refs\n\n/, `### Evidence Refs\n\n${evidenceRefs}\n\n`);
+    }
+  }
+
+  if (patchNotes) {
+    content = content.replace(
+      /## Patch Notes\n<!-- Filled by dev rig agent after fix is applied -->/,
+      `## Patch Notes\n${patchNotes}`
+    );
+    if (!content.includes(patchNotes)) {
+      content = content.replace(/## Patch Notes\n/, `## Patch Notes\n${patchNotes}\n`);
+    }
+  }
+
+  if (verification) {
+    content = content.replace(
+      /## Verification\n<!-- Filled by Mini agent after deploy -->/,
+      `## Verification\n${verification}`
+    );
+    if (!content.includes(verification)) {
+      content = content.replace(/## Verification\n/, `## Verification\n${verification}\n`);
+    }
+  }
+
+  if (related) {
+    // Add/update Related row in the metadata table
+    if (content.includes("| **Related** |")) {
+      content = content.replace(/\| \*\*Related\*\* \|.*\|/, `| **Related** | ${related} |`);
+    } else {
+      // Insert before the closing | **Status** | row
+      content = content.replace(
+        /(\| \*\*Status\*\* \|)/,
+        `| **Related** | ${related} |\n$1`
+      );
+    }
+  }
+
+  await fs.writeFile(filePath, content, "utf-8");
+  return { content: [{ type: "text", text: JSON.stringify({ success: true, id, file: entry.file }) }] };
+}
+
 async function updateTicketStatus(args: Record<string, unknown>): Promise<CallToolResult> {
   const id = args.id as string;
   const newStatus = args.new_status as "patched" | "resolved";
@@ -479,6 +580,7 @@ export async function handleCall(name: string, args: Record<string, unknown>): P
     case "view_ticket": return viewTicket(args);
     case "search_tickets": return searchTickets(args);
     case "create_ticket": return createTicket(args);
+    case "update_ticket": return updateTicket(args);
     case "update_ticket_status": return updateTicketStatus(args);
     case "archive_ticket": return archiveTicket(args);
     default:

@@ -80,6 +80,22 @@ export const tools: Tool[] = [
     },
   },
   {
+    name: "update_patch",
+    description: "Append structured content to specific sections of a patch (evidence_refs, proposed_diff, applied_notes, verification, related). Works regardless of current file rename state.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: { type: "string", description: "Patch ID, e.g. PA-042" },
+        evidence_refs: { type: "string", description: "Append to the Evidence Refs section" },
+        proposed_diff: { type: "string", description: "Append to the Proposed Diff section" },
+        applied_notes: { type: "string", description: "Append to the Applied section" },
+        verification: { type: "string", description: "Append to the Verification section" },
+        related: { type: "string", description: "Set the Related field in the metadata table (e.g. 'TK-068')" },
+      },
+      required: ["id"],
+    },
+  },
+  {
     name: "update_patch_status",
     description: "Advance a patch's status. Transitions: open → applied → verified. Renames file and updates/archives index entry.",
     inputSchema: {
@@ -312,6 +328,87 @@ async function searchPatches(args: Record<string, unknown>): Promise<CallToolRes
   };
 }
 
+async function updatePatch(args: Record<string, unknown>): Promise<CallToolResult> {
+  const id = args.id as string;
+  const evidenceRefs = args.evidence_refs as string | undefined;
+  const proposedDiff = args.proposed_diff as string | undefined;
+  const appliedNotes = args.applied_notes as string | undefined;
+  const verification = args.verification as string | undefined;
+  const related = args.related as string | undefined;
+
+  if (!evidenceRefs && !proposedDiff && !appliedNotes && !verification && !related) {
+    return { content: [{ type: "text", text: "No fields provided — specify at least one of: evidence_refs, proposed_diff, applied_notes, verification, related" }], isError: true };
+  }
+
+  const index = await readIndex<PatchIndex>(PATCH_INDEX);
+  const entry = index.patches[id];
+  if (!entry) {
+    return { content: [{ type: "text", text: `Patch ${id} not found in index` }], isError: true };
+  }
+
+  const filePath = path.join(PATCH_DIR, entry.file);
+  let content: string;
+  try {
+    content = await fs.readFile(filePath, "utf-8");
+  } catch {
+    return { content: [{ type: "text", text: `File not found: ${entry.file}` }], isError: true };
+  }
+
+  if (evidenceRefs) {
+    content = content.replace(
+      /### Evidence Refs <!-- optional on open, REQUIRED on applied\/verified -->/,
+      `### Evidence Refs\n\n${evidenceRefs}`
+    );
+    if (!content.includes(evidenceRefs)) {
+      content = content.replace(/### Evidence Refs\n\n/, `### Evidence Refs\n\n${evidenceRefs}\n\n`);
+    }
+  }
+
+  if (proposedDiff) {
+    content = content.replace(
+      /### Proposed Diff <!-- optional but encouraged -->/,
+      `### Proposed Diff\n\n${proposedDiff}`
+    );
+    if (!content.includes(proposedDiff)) {
+      content = content.replace(/### Proposed Diff\n\n/, `### Proposed Diff\n\n${proposedDiff}\n\n`);
+    }
+  }
+
+  if (appliedNotes) {
+    content = content.replace(
+      /## Applied\n<!-- Filled by dev rig agent after change is applied -->/,
+      `## Applied\n${appliedNotes}`
+    );
+    if (!content.includes(appliedNotes)) {
+      content = content.replace(/## Applied\n/, `## Applied\n${appliedNotes}\n`);
+    }
+  }
+
+  if (verification) {
+    content = content.replace(
+      /## Verification\n<!-- Filled by Mini agent after deploy -->/,
+      `## Verification\n${verification}`
+    );
+    if (!content.includes(verification)) {
+      content = content.replace(/## Verification\n/, `## Verification\n${verification}\n`);
+    }
+  }
+
+  if (related) {
+    if (content.includes("| **Related** |")) {
+      content = content.replace(/\| \*\*Related\*\* \|.*\|/, `| **Related** | ${related} |`);
+    } else {
+      content = content.replace(
+        /(\| \*\*Status\*\* \|)/,
+        `| **Related** | ${related} |\n$1`
+      );
+    }
+  }
+
+  await fs.writeFile(filePath, content, "utf-8");
+  return { content: [{ type: "text", text: JSON.stringify({ success: true, id, file: entry.file }) }] };
+}
+
 async function updatePatchStatus(args: Record<string, unknown>): Promise<CallToolResult> {
   const id = args.id as string;
   const newStatus = args.new_status as "applied" | "verified";
@@ -494,6 +591,7 @@ export async function handleCall(name: string, args: Record<string, unknown>): P
     case "view_patch": return viewPatch(args);
     case "search_patches": return searchPatches(args);
     case "create_patch": return createPatch(args);
+    case "update_patch": return updatePatch(args);
     case "update_patch_status": return updatePatchStatus(args);
     case "archive_patch": return archivePatch(args);
     default:
