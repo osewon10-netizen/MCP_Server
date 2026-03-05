@@ -2,6 +2,7 @@ import { createServer } from "./server.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { createServer as createHttpServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { MCP_PORT } from "./lib/paths.js";
+import { normalizeMcpHeaders } from "./lib/mcp-http-compat.js";
 
 /** Collect raw body bytes from an IncomingMessage and parse as JSON. */
 async function parseJsonBody(req: IncomingMessage): Promise<unknown> {
@@ -21,6 +22,8 @@ async function parseJsonBody(req: IncomingMessage): Promise<unknown> {
 }
 
 async function handleMcp(req: IncomingMessage, res: ServerResponse): Promise<void> {
+  normalizeMcpHeaders(req);
+
   // Create a fresh transport + server per request (stateless mode).
   // This is safe for a single-user local-network server.
   const server = createServer();

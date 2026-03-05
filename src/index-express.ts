@@ -3,6 +3,7 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { createServer as createHttpServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { EXPRESS_MCP_PORT, OLLAMA_WORKSPACE } from "./lib/paths.js";
 import { EXPRESS_ALLOWED_SET, EXPRESS_ALLOWED_TOOLS } from "./lib/express-allowlist.js";
+import { normalizeMcpHeaders } from "./lib/mcp-http-compat.js";
 
 const MAX_CONCURRENT_REQUESTS = 4;
 let inFlight = 0;
@@ -24,6 +25,8 @@ async function parseJsonBody(req: IncomingMessage): Promise<unknown> {
 }
 
 async function handleMcp(req: IncomingMessage, res: ServerResponse): Promise<void> {
+  normalizeMcpHeaders(req);
+
   const server = createServer({ name: "minimart_express", allowedTools: EXPRESS_ALLOWED_SET });
   const transport = new StreamableHTTPServerTransport({
     sessionIdGenerator: undefined,
