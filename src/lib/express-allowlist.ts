@@ -34,6 +34,8 @@ export const EXPRESS_ALLOWED_TOOLS = [
   "list_plans", // IP read-only (code_review / gap_detect context)
   "view_plan", // IP read-only
   "get_tool_info", // introspection — verify live tool descriptions
+  "ollama_triage_ticket", // readiness check for TK/PA verification
+  "ollama_compare_logs", // before/after deploy log comparison
 ] as const;
 
 export const EXPRESS_ALLOWED_SET = new Set<string>(EXPRESS_ALLOWED_TOOLS);

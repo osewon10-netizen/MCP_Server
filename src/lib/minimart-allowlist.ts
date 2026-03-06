@@ -74,10 +74,12 @@ export const MINIMART_ALLOWED_TOOLS = [
   "git_diff",
   "git_status",
 
-  // Ollama helpers — frontier-facing (3)
+  // Ollama helpers — frontier-facing (5)
   "ollama_summarize_logs",
   "ollama_digest_service",
   "ollama_eval",
+  "ollama_triage_ticket",
+  "ollama_compare_logs",
 
   // Overview (2)
   "server_overview",

@@ -142,6 +142,30 @@ export const tools: Tool[] = [
     },
   },
   {
+    name: "ollama_triage_ticket",
+    description: "Check if a TK or PA is ready for mini verification. Reads the ticket/patch, applies readiness rules via Ollama, returns ready/not-ready + verify_steps. Saves ~500 frontier tokens vs. manual review.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: { type: "string", description: "Ticket or patch ID (TK-XXX or PA-XXX)" },
+      },
+      required: ["id"],
+    },
+  },
+  {
+    name: "ollama_compare_logs",
+    description: "Compare two log snapshots (before/after deploy) and return structured diff: improved, degraded, unchanged. Useful for post-deploy verification. Caller provides both snapshots as text.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        service: { type: "string", description: "Service name (for context in the prompt)" },
+        before_logs: { type: "string", description: "Log text captured before the deploy" },
+        after_logs: { type: "string", description: "Log text captured after the deploy" },
+      },
+      required: ["service", "before_logs", "after_logs"],
+    },
+  },
+  {
     name: "ollama_eval",
     description: "Log a quality rating for the most recent ollama_* tool call. Call this immediately after any ollama_summarize_* or ollama_digest_* call to record whether the output was useful. Accumulates calibration data for scoping Ollama workers.",
     inputSchema: {
@@ -223,7 +247,14 @@ Write a brief summary (10-15 lines max) covering:
 - Notable patterns (repeated errors, timeouts, connection issues)
 - Anything unusual or worth investigating
 
-Be direct. No filler. If logs look clean, say so in 2-3 lines.`;
+Be direct. No filler. If logs look clean, say so in 2-3 lines.
+
+## Severity Rules (strict)
+- Only flag ERROR or FATAL lines as critical issues
+- WARN lines are informational unless they repeat 10+ times in this window
+- INFO lines are NEVER flagged as problems
+- Lines containing "rejected:" are INPUT VALIDATION working correctly — classify as INFO, not ERROR
+- If the service is running fine with only INFO/WARN noise, say so in 2-3 lines and stop`;
 
   const prompt = loadPromptTemplate(promptTemplate, { logs: logText });
   inputChars = prompt.length;
@@ -743,6 +774,155 @@ Answer directly. Reference file names, function names, or line context where rel
   return result;
 }
 
+// ─── ollama_triage_ticket ────────────────────────────────────────────
+
+async function ollamaTriageTicket(args: Record<string, unknown>): Promise<CallToolResult> {
+  const id = args.id as string;
+  if (!id || (!id.startsWith("TK-") && !id.startsWith("PA-"))) {
+    return { content: [{ type: "text", text: "id must be TK-XXX or PA-XXX" }], isError: true };
+  }
+
+  const key = cacheKey("ollama_triage_ticket", id, "");
+  const cached = getCached(key);
+  if (cached) {
+    const parsed = JSON.parse((cached.content[0] as { text: string }).text);
+    parsed.meta.cached = true;
+    return { content: [{ type: "text", text: JSON.stringify(parsed, null, 2) }] };
+  }
+
+  const start = Date.now();
+
+  // Read the ticket/patch
+  let entryText = "";
+  try {
+    const result = id.startsWith("TK-")
+      ? await ticketsHandleCall("view_ticket", { id })
+      : await patchesHandleCall("view_patch", { id });
+    entryText = (result.content[0] as { text: string }).text;
+  } catch (err) {
+    return { content: [{ type: "text", text: `Failed to read ${id}: ${err instanceof Error ? err.message : String(err)}` }], isError: true };
+  }
+
+  const prompt = `You are a deployment triage agent. Decide if this ticket/patch is ready for mini (production agent) to verify and deploy.
+
+## Entry
+${entryText}
+
+## Readiness Rules
+- NOT ready if status is "open" or "in-progress" (must be "patched" or "applied")
+- NOT ready if there is no commit SHA in patch_notes, commit field, or deploy_notes
+- NOT ready if patch_notes is empty and deploy_notes is absent
+- READY if status is "patched"/"applied" AND a commit reference is present
+
+## Response format (JSON only, no other text)
+{
+  "ready": true or false,
+  "reason": "one sentence explaining the decision",
+  "verify_steps": ["step 1", "step 2"]
+}
+
+If not ready, verify_steps should be what the dev agent still needs to do.
+If ready, verify_steps should be what mini should check during verification.`;
+
+  let answer: string | null = null;
+  let ollamaOk = false;
+  try {
+    answer = await ollamaGenerate(HELPER_MODEL, prompt);
+    lastOllamaCall = { input: prompt, output: answer };
+    ollamaOk = true;
+  } catch (err) {
+    return { content: [{ type: "text", text: `Ollama unavailable: ${err instanceof Error ? err.message : String(err)}` }], isError: true };
+  }
+
+  // Parse JSON response
+  let parsed: { ready: boolean; reason: string; verify_steps: string[] };
+  try {
+    const jsonMatch = answer.match(/\{[\s\S]*\}/);
+    parsed = JSON.parse(jsonMatch ? jsonMatch[0] : answer);
+  } catch {
+    parsed = { ready: false, reason: "Ollama response was not valid JSON", verify_steps: [answer ?? ""] };
+  }
+
+  const latencyMs = Date.now() - start;
+  const result: CallToolResult = {
+    content: [{
+      type: "text",
+      text: JSON.stringify({ id, ...parsed, meta: { model: HELPER_MODEL, latency_ms: latencyMs, cached: false, ok: ollamaOk } }, null, 2),
+    }],
+  };
+
+  setCached(key, result);
+  return result;
+}
+
+// ─── ollama_compare_logs ─────────────────────────────────────────────
+
+async function ollamaCompareLogs(args: Record<string, unknown>): Promise<CallToolResult> {
+  const service = args.service as string;
+  const beforeLogs = args.before_logs as string;
+  const afterLogs = args.after_logs as string;
+
+  const key = cacheKey("ollama_compare_logs", service, `${beforeLogs.slice(0, 100)}:${afterLogs.slice(0, 100)}`);
+  const cached = getCached(key);
+  if (cached) {
+    const parsed = JSON.parse((cached.content[0] as { text: string }).text);
+    parsed.meta.cached = true;
+    return { content: [{ type: "text", text: JSON.stringify(parsed, null, 2) }] };
+  }
+
+  const start = Date.now();
+
+  const prompt = `You are a deployment verification agent. Compare these two log snapshots for service "${service}" and identify what changed.
+
+## Before Deploy
+${beforeLogs.slice(0, 8000)}
+
+## After Deploy
+${afterLogs.slice(0, 8000)}
+
+## Severity Rules
+- Only flag ERROR or FATAL lines as problems
+- WARN lines are informational unless they increased significantly
+- New INFO lines are not problems
+
+## Response format (JSON only, no other text)
+{
+  "status_change": "improved" | "degraded" | "unchanged",
+  "improved": ["thing that got better"],
+  "degraded": ["thing that got worse"],
+  "unchanged": ["thing that stayed the same"]
+}`;
+
+  let answer: string | null = null;
+  let ollamaOk = false;
+  try {
+    answer = await ollamaGenerate(HELPER_MODEL, prompt);
+    lastOllamaCall = { input: prompt, output: answer };
+    ollamaOk = true;
+  } catch (err) {
+    return { content: [{ type: "text", text: `Ollama unavailable: ${err instanceof Error ? err.message : String(err)}` }], isError: true };
+  }
+
+  let parsed: { status_change: string; improved: string[]; degraded: string[]; unchanged: string[] };
+  try {
+    const jsonMatch = answer.match(/\{[\s\S]*\}/);
+    parsed = JSON.parse(jsonMatch ? jsonMatch[0] : answer);
+  } catch {
+    parsed = { status_change: "unknown", improved: [], degraded: [], unchanged: [answer ?? ""] };
+  }
+
+  const latencyMs = Date.now() - start;
+  const result: CallToolResult = {
+    content: [{
+      type: "text",
+      text: JSON.stringify({ service, ...parsed, meta: { model: HELPER_MODEL, latency_ms: latencyMs, cached: false, ok: ollamaOk } }, null, 2),
+    }],
+  };
+
+  setCached(key, result);
+  return result;
+}
+
 // ─── ollama_eval ─────────────────────────────────────────────────────
 
 interface EvalRecord {
@@ -820,6 +1000,8 @@ export async function handleCall(name: string, args: Record<string, unknown>): P
     case "ollama_digest_service": return ollamaDigestService(args);
     case "ollama_summarize_source": return ollamaSummarizeSource(args);
     case "ollama_summarize_diff": return ollamaSummarizeDiff(args);
+    case "ollama_triage_ticket": return ollamaTriageTicket(args);
+    case "ollama_compare_logs": return ollamaCompareLogs(args);
     case "ollama_eval": return ollamaEval(args);
     default:
       return { content: [{ type: "text", text: `Unknown tool: ${name}` }], isError: true };
