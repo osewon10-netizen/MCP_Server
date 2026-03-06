@@ -111,9 +111,10 @@ async function deployStatus(args: Record<string, unknown>): Promise<CallToolResu
       state: state.state,
       pm2Status: state.pm2Status,
       surfaces_restarted: surfaces,
-      commitsBehind: state.commitsBehind,
-      lastCheck: state.lastCheck,
+      // incomingCommits is authoritative (fresh git fetch); commitsBehind omitted (MANTIS cached, may lag)
       incomingCommits: incoming,
+      incomingCount: incoming?.length ?? null,
+      lastCheck: state.lastCheck,
     };
     return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
   } catch (err: unknown) {
