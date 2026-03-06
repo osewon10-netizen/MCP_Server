@@ -43,6 +43,18 @@ export const ELECTRONICS_ALLOWED_TOOLS = [
   "ollama_summarize_logs",
   "ollama_digest_service",
 
+  // Context7 — embedded (2)
+  "ctx7_resolve_library",
+  "ctx7_get_docs",
+
+  // GitHub — embedded (6)
+  "gh_get_file",
+  "gh_create_pr",
+  "gh_get_pr_diff",
+  "gh_list_commits",
+  "gh_search_code",
+  "gh_create_issue",
+
   // IP/PH — full lifecycle except verify (7)
   "create_plan",
   "list_plans",

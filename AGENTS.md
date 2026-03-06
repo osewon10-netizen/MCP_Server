@@ -2,7 +2,7 @@
 
 ## 1. Identity
 
-**What:** MCP (Model Context Protocol) server exposing tools over HTTP for multi-agent ops across 4 service repos on Mini. Three surfaces: MiniMart (6974, 74 ops tools), Express (6975, 31 Ollama worker tools), Electronics (6976, 28 dev rig tools). All share one codebase with explicit allowlists per surface.
+**What:** MCP (Model Context Protocol) server exposing tools over HTTP for multi-agent ops across 4 service repos on Mini. Three surfaces: MiniMart (6974, 78 ops tools), Express (6975, 33 Ollama worker tools), Electronics (6976, 43 dev rig tools — 35 native + 8 embedded third-party). All share one codebase with explicit allowlists per surface.
 
 **Who uses it:** Claude Code (Opus/Sonnet), Codex, Gemini CLI, OpenClaw — any agent that speaks MCP over HTTP.
 
@@ -20,9 +20,9 @@
 | Target | ES2022, NodeNext module resolution |
 | Entry points | `build/index.js`, `build/index-express.js`, `build/index-electronics.js` |
 | Process manager | PM2 (`ecosystem.config.cjs`) — three processes: minimart, minimart_express, minimart_electronics |
-| Port (MiniMart) | 6974, `0.0.0.0` — ops/verify/archive (74 tools) |
-| Port (Express) | 6975, `127.0.0.1` — Ollama worker lane (31 tools) |
-| Port (Electronics) | 6976, `0.0.0.0` — dev rig agents (28 tools) |
+| Port (MiniMart) | 6974, `0.0.0.0` — ops/verify/archive (78 tools) |
+| Port (Express) | 6975, `127.0.0.1` — Ollama worker lane (33 tools) |
+| Port (Electronics) | 6976, `0.0.0.0` — dev rig agents (43 tools: 35 native + 8 embedded) |
 | Strict mode | Yes (`strict: true` in tsconfig) |
 
 ## 3. File Map
@@ -36,17 +36,17 @@ mini_cp_server/
 ├── prompts/                  # 12 OC task prompt templates (loaded at runtime by get_task_config)
 │
 ├── src/
-│   ├── index.ts              # MiniMart entry — 74 tools, 0.0.0.0:6974, explicit allowlist
-│   ├── index-express.ts      # Express entry — 31 tools, 127.0.0.1:6975, concurrency guard
-│   ├── index-electronics.ts  # Electronics entry — 28 tools, 0.0.0.0:6976, transition guards
-│   ├── server.ts             # MCP server factory — registers 21 tool modules, allowlist + transitionGuards
+│   ├── index.ts              # MiniMart entry — 78 tools, 0.0.0.0:6974, explicit allowlist
+│   ├── index-express.ts      # Express entry — 33 tools, 127.0.0.1:6975, concurrency guard
+│   ├── index-electronics.ts  # Electronics entry — 43 tools, 0.0.0.0:6976, transition guards
+│   ├── server.ts             # MCP server factory — registers 23 tool modules (90 tools), allowlist + transitionGuards
 │   ├── types.ts              # All shared interfaces (Ticket, Patch, MANTIS, etc.)
 │   │
 │   ├── lib/                  # Shared utilities (no tools here)
 │   │   ├── paths.ts          # All filesystem paths, URLs, ports, getFileWorkspace() — single source of truth
-│   │   ├── minimart-allowlist.ts  # Explicit allowlist for MiniMart (6974) — 74 tools
-│   │   ├── express-allowlist.ts   # Explicit allowlist for Express (6975) — 31 tools
-│   │   ├── electronics-allowlist.ts # Explicit allowlist for Electronics (6976) — 28 tools
+│   │   ├── minimart-allowlist.ts  # Explicit allowlist for MiniMart (6974) — 78 tools
+│   │   ├── express-allowlist.ts   # Explicit allowlist for Express (6975) — 33 tools
+│   │   ├── electronics-allowlist.ts # Explicit allowlist for Electronics (6976) — 43 tools
 │   │   ├── index-manager.ts  # Hardened index.json read/write (backup+fsync+validate+rename)
 │   │   ├── archive.ts        # JSONL archive operations (append, search, lookup, migration)
 │   │   ├── tag-normalizer.ts     # Tag-map.json loader + normalizer
@@ -77,7 +77,9 @@ mini_cp_server/
 │       ├── network.ts        # 1 tool: network_quality (time-series metrics)
 │       ├── oc.ts             # 6 tools: create/list/view/update_oc_task, archive_oc_task, list_oc_archive
 │       ├── task-config.ts    # 1 tool: get_task_config (task type registry + prompt loader)
-│       └── ollama-helpers.ts # 2 tools: ollama_summarize_logs, ollama_digest_service (frontier-facing only, not on express)
+│       ├── ollama-helpers.ts # 2 tools: ollama_summarize_logs, ollama_digest_service (frontier-facing only, not on express)
+│       ├── context7.ts      # 2 tools: ctx7_resolve_library, ctx7_get_docs (embedded, Electronics only)
+│       └── github-embedded.ts # 6 tools: gh_get_file, gh_create_pr, gh_get_pr_diff, gh_list_commits, gh_search_code, gh_create_issue (embedded, Electronics only)
 │
 └── build/                    # Compiled JS output (gitignored)
 ```
@@ -114,7 +116,7 @@ Agent (any machine)
 
 **Stateless design:** Each POST /mcp creates a fresh MCP server + transport. No sessions, no state between requests. This is deliberate — the server is a tool bridge, not an application.
 
-## 5. Tool Registry (74 tools total — see README.minimart_surfaces.md for per-surface placement)
+## 5. Tool Registry (90 tools total — see README.minimart_surfaces.md for per-surface placement)
 
 ### Ticketing & Handoffs (23 tools)
 | Tool | Module | What It Does |
@@ -251,6 +253,22 @@ Agent (any machine)
 |------|--------|-------------|
 | `ollama_summarize_logs` | ollama-helpers.ts | Compress PM2 logs into 10-15 line NL summary via Qwen3-4B. 5-min cache, 100KB log cap, fallback to raw on timeout |
 | `ollama_digest_service` | ollama-helpers.ts | One-call service briefing (pm2+logs+tickets+patches → 15-25 line NL). mode=fast skips logs. 5-min cache |
+
+### Embedded Third-Party — Context7 (2 tools, Electronics only)
+| Tool | Module | What It Does |
+|------|--------|-------------|
+| `ctx7_resolve_library` | context7.ts | Resolve library name to Context7-compatible ID (e.g., "next.js" → /vercel/next.js). Uses remote MCP client |
+| `ctx7_get_docs` | context7.ts | Fetch up-to-date docs by Context7 ID + optional topic. 50KB response cap |
+
+### Embedded Third-Party — GitHub (6 tools, Electronics only)
+| Tool | Module | What It Does |
+|------|--------|-------------|
+| `gh_get_file` | github-embedded.ts | Read file/dir from GitHub repo via REST API. 50KB cap. Auth: GITHUB_PAT env |
+| `gh_create_pr` | github-embedded.ts | Create a pull request on a repo |
+| `gh_get_pr_diff` | github-embedded.ts | Get PR diff in unified format. 50KB cap |
+| `gh_list_commits` | github-embedded.ts | List recent commits (short SHA + message + date) |
+| `gh_search_code` | github-embedded.ts | Search code across repos, scoped to GITHUB_OWNER by default |
+| `gh_create_issue` | github-embedded.ts | Create a GitHub issue with optional labels |
 
 ## 6. Mini Server Filesystem
 
@@ -525,7 +543,7 @@ All three surfaces share one codebase, one build, one `createServer()` factory. 
 |-----|-------|
 | Port | 6975, localhost only (`127.0.0.1`) |
 | PM2 process | `minimart_express` |
-| Allowlist | `src/lib/express-allowlist.ts` (31 tools) |
+| Allowlist | `src/lib/express-allowlist.ts` (33 tools) |
 | Workspace | `/server/agent/ollama/` (via `MINIMART_FILE_WORKSPACE` env var) |
 | Concurrency | Max 4 concurrent requests (429 if exceeded) |
 
@@ -535,7 +553,7 @@ All three surfaces share one codebase, one build, one `createServer()` factory. 
 |-----|-------|
 | Port | 6976, `0.0.0.0` |
 | PM2 process | `minimart_electronics` |
-| Allowlist | `src/lib/electronics-allowlist.ts` (28 native tools) |
+| Allowlist | `src/lib/electronics-allowlist.ts` (43 tools: 35 native + 8 embedded) |
 | Workspace | `/server/agent/workspace/` (same as MiniMart) |
 | Transition guards | TK: open→in-progress, in-progress→patched. PA: open→in-review, in-review→applied |
 

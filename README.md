@@ -2,6 +2,8 @@
 
 MCP (Model Context Protocol) server that bridges AI agents to Sewon's infrastructure on Mac Mini. Exposes 64 structured tools over HTTP — ticketing with agent handoffs, deployments, health monitoring, MANTIS proxy, git operations, file access, network metrics, training data export, local LLM inference, and Ollama task management.
 
+Scoped server docs: see `README.minimart_express.md` for dedicated `minimart_express` runtime, hardening, and allowlist behavior.
+
 ## Why This Exists
 
 Multiple AI agents (Claude Code, Codex, Gemini CLI, OpenClaw) need structured access to the same infrastructure. Instead of each agent implementing its own SSH commands and file parsing, this server provides a single, typed tool interface over MCP. Dev rig agents reach it via SSH tunnel (forwarded to localhost); agents on Mini hit it locally.

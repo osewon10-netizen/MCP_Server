@@ -32,6 +32,8 @@ module.exports = {
       interpreter: "node",
       env: {
         NODE_ENV: "production",
+        GITHUB_OWNER: "osewon10-netizen",
+        // GITHUB_PAT: set on mini via /server/config/env/electronics.env (not committed)
       },
       max_memory_restart: "128M",
       error_file: "/Users/minmac.serv/server/logs/minimart_electronics/pm2.err.log",

@@ -29,6 +29,8 @@ import * as taskConfigMod from "./tools/task-config.js";
 import * as ollamaHelpersMod from "./tools/ollama-helpers.js";
 import * as plansMod from "./tools/plans.js";
 import * as plansOpsMod from "./tools/plans-ops.js";
+import * as context7Mod from "./tools/context7.js";
+import * as githubMod from "./tools/github-embedded.js";
 
 type ToolHandler = (name: string, args: Record<string, unknown>) => Promise<CallToolResult>;
 
@@ -61,6 +63,8 @@ const toolModules: ToolModule[] = [
   ollamaHelpersMod,
   plansMod,
   plansOpsMod,
+  context7Mod,
+  githubMod,
 ];
 
 /**

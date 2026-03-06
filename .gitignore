@@ -3,3 +3,15 @@ build/
 *.tsbuildinfo
 .env
 .claude/
+
+# Local Codex protocol schema/artifact dumps (not project source)
+/codex_app_server_protocol.schemas.json
+/v1/
+/v2/
+/EventMsg.json
+/RequestId.json
+/JSONRPC*.json
+/*Params.json
+/*Response.json
+/*Request.json
+/*Notification.json
