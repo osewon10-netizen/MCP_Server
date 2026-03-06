@@ -9,6 +9,13 @@ const execFileAsync = promisify(execFile);
 
 const EXEC_TIMEOUT_MS = parseInt(process.env.WRAPPER_TIMEOUT_MS ?? "60000", 10);
 
+// Scripts that restart the MCP server — calling these kills the active session
+const SELF_DEPLOY_PATTERNS = ["ops_minimart_deploy.sh"];
+function isSelfDeploy(scriptPath: string): boolean {
+  const base = path.basename(scriptPath);
+  return SELF_DEPLOY_PATTERNS.includes(base);
+}
+
 export const tools: Tool[] = [
   {
     name: "list_wrappers",
@@ -68,7 +75,7 @@ async function listWrappers(): Promise<CallToolResult> {
     return {
       content: [{
         type: "text",
-        text: JSON.stringify({ wrappers_dir: WRAPPERS_DIR, scripts }, null, 2),
+        text: JSON.stringify({ wrappers_dir: WRAPPERS_DIR, scripts: scripts.map(s => isSelfDeploy(s) ? `${s}  [WARNING: self-deploy — restarts this MCP server; use out-of-band instead]` : s) }, null, 2),
       }],
     };
   } catch (err: unknown) {
@@ -112,6 +119,23 @@ async function runWrapper(args: Record<string, unknown>): Promise<CallToolResult
   if (!normalized.endsWith(".sh")) {
     return {
       content: [{ type: "text", text: `Rejected: only .sh scripts are allowed` }],
+      isError: true,
+    };
+  }
+
+  // Block self-deploy scripts — they restart the MCP server mid-call
+  if (isSelfDeploy(normalized)) {
+    return {
+      content: [{
+        type: "text",
+        text: [
+          "Self-deploy blocked: this script restarts the MCP server you are connected to,",
+          "which would kill your session mid-call.",
+          "",
+          "Use out-of-band deploy from a shell on mini:",
+          "  git pull && npm run build && pm2 restart minimart minimart_express minimart_electronics --update-env",
+        ].join("\n"),
+      }],
       isError: true,
     };
   }
