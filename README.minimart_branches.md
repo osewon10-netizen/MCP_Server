@@ -1,7 +1,7 @@
-# MiniMart Surfaces — Authoritative Tool Reference
+# MiniMart Branches — Authoritative Tool Reference
 
-> **This is the source of truth for which tools live on which MCP surface.**
-> If this doc and AGENTS.md disagree, this doc wins for surface placement.
+> **This is the single source of truth for all tool listings and per-branch placement.**
+> AGENTS.md and README.md reference this doc — they do not duplicate tool tables.
 > If this doc and the `*-allowlist.ts` files disagree, update the code to match this doc.
 >
 > Design rationale: `docs_archived/MINIMART_MULTI_SURFACE_DESIGN.md`
@@ -10,13 +10,13 @@
 
 ## Overview
 
-| Surface | Port | Bind | PM2 Process | Entry | Role |
-|---------|------|------|-------------|-------|------|
-| **MiniMart** | 6974 | `0.0.0.0` | `minimart` | `index.ts` | Ops / verification / archive authority |
-| **MiniMart Express** | 6975 | `127.0.0.1` | `minimart_express` | `index-express.ts` | Ollama worker lane |
-| **MiniMart Electronics** | 6976 | `0.0.0.0` | `minimart_electronics` | `index-electronics.ts` | Dev/build store |
+| Branch | Port | Bind | PM2 Process | Entry | Tools | Role |
+|--------|------|------|-------------|-------|-------|------|
+| **MiniMart** | 6974 | `0.0.0.0` | `minimart` | `index.ts` | 78 | Ops / verification / archive authority |
+| **Express** | 6975 | `127.0.0.1` | `minimart_express` | `index-express.ts` | 33 | Ollama worker lane |
+| **Electronics** | 6976 | `0.0.0.0` | `minimart_electronics` | `index-electronics.ts` | 43 | Dev/build store |
 
-All three share one codebase, one truth store, one `createServer()` factory. Each has its own explicit allowlist.
+All three share one codebase, one truth store, one `createServer()` factory. Each has its own explicit allowlist. 90 tools registered across 23 modules.
 
 ---
 
@@ -200,21 +200,22 @@ All three share one codebase, one truth store, one `createServer()` factory. Eac
 |------|--------|--------|
 | `service_registry` | registry.ts | Static service metadata |
 
-### IP/PH — Read + Verify (NEW)
+### IP/PH — Read + Review + Verify (4 tools)
 
 | Tool | Module | Access |
 |------|--------|--------|
 | `list_plans` | plans.ts | List IPs by status/service |
 | `view_plan` | plans.ts | View IP + all phases |
+| `review_plan` | plans-ops.ts | Opus reviews IP post-implementation |
 | `verify_plan` | plans-ops.ts | Mini verifies + archives IP and all phases |
 
-**MiniMart total: ~80 tools** (current 64 + 3 plan + 6 embedded third-party: 3 Playwright + 3 DuckDB)
+**MiniMart total: 78 tools**
 
 ### Blocked from MiniMart
 
 | Tool | Reason |
 |------|--------|
-| `create_plan`, `claim_plan`, `update_phase`, `complete_plan`, `review_plan` | IP execution is Electronics-only |
+| `create_plan`, `claim_plan`, `update_phase`, `complete_plan` | IP execution is Electronics-only |
 
 ---
 
@@ -241,6 +242,13 @@ All three share one codebase, one truth store, one `createServer()` factory. Eac
 | `file_read` | files.ts | Scoped to ollama workspace |
 | `file_write` | files.ts | Scoped to ollama workspace |
 | `read_source_file` | files.ts | Read-only from service repos (50KB cap) |
+
+### Ollama Direct (2 tools)
+
+| Tool | Module | Access |
+|------|--------|--------|
+| `ollama_generate` | ollama.ts | Local inference (used by OC runner) |
+| `ollama_models` | ollama.ts | List available models |
 
 ### Logs + Health + Git (9 tools)
 
@@ -276,7 +284,7 @@ All three share one codebase, one truth store, one `createServer()` factory. Eac
 | `list_oc_archive` | oc.ts | OC archive search |
 | `get_task_config` | task-config.ts | Task registry + prompts |
 
-### Read-Only Ticketing (6 tools)
+### Read-Only Ticketing (7 tools)
 
 | Tool | Module | Access |
 |------|--------|--------|
@@ -284,17 +292,18 @@ All three share one codebase, one truth store, one `createServer()` factory. Eac
 | `list_patches` | patches.ts | Read-only |
 | `search_tickets` | tickets.ts | Read-only archive search |
 | `search_patches` | patches.ts | Read-only archive search |
+| `export_training_data` | training.ts | Archive → JSONL (archive_normalize task) |
 | `lookup_tags` | tags.ts | Read-only |
 | `validate_failure_class` | tags.ts | Read-only |
 
-### IP/PH — Read Only (NEW)
+### IP/PH — Read Only (2 tools)
 
 | Tool | Module | Access |
 |------|--------|--------|
 | `list_plans` | plans.ts | Read-only (for code_review / gap_detect context) |
 | `view_plan` | plans.ts | Read-only |
 
-**Express total: ~30 tools** (current 28 + 2 plan read-only, no third-party tools)
+**Express total: 33 tools** (no third-party tools)
 
 ### Blocked from Express
 
@@ -308,8 +317,6 @@ All three share one codebase, one truth store, one `createServer()` factory. Eac
 | Overview/batch | `server_overview`, `quick_status`, `batch_ticket_status`, `batch_archive`, `my_queue`, `peek`, `pick_up` |
 | Network | `network_quality` |
 | Ollama helpers | `ollama_summarize_logs`, `ollama_digest_service` |
-| Ollama direct | `ollama_generate`, `ollama_models` (OC orchestrator calls these via its own HTTP client, not via Express MCP) |
-| Training | `export_training_data` (ops-only) |
 | Cron | `list_crons`, `cron_log`, `trigger_cron` |
 | IP mutations | `create_plan`, `claim_plan`, `update_phase`, `complete_plan`, `review_plan`, `verify_plan` |
 
@@ -329,7 +336,7 @@ All three share one codebase, one truth store, one `createServer()` factory. Eac
 - Status transition guards enforce dev-allowed transitions only
 - `create_patch` includes provenance metadata (`origin_ip`, `origin_phase`) and routes to team queue
 
-### IP/PH — Full Lifecycle Except Verify (7 tools, NEW)
+### IP/PH — Full Lifecycle Except Verify (7 tools)
 
 | Tool | Module | Access |
 |------|--------|--------|
@@ -445,7 +452,7 @@ All three share one codebase, one truth store, one `createServer()` factory. Eac
 | Wrappers | `list_wrappers`, `run_wrapper` | Ops-only |
 | Network | `network_quality` | Ops-only |
 | Files | `file_read`, `file_write` | Dev agents have their own filesystem |
-| Ollama direct | `ollama_generate`, `ollama_models` | Ops-only (OC orchestrator calls Ollama directly via HTTP, not via MCP) |
+| Ollama direct | `ollama_generate`, `ollama_models` | OC orchestrator calls Ollama directly via HTTP, not via MCP |
 | OC tasks | `create_oc_task`, `list_oc_tasks`, `view_oc_task`, `update_oc_task`, `archive_oc_task`, `list_oc_archive`, `get_task_config` | Express/OC orchestrator |
 | Training | `export_training_data` | Ops-only |
 | Plan verify | `verify_plan` | Mini verification authority |
@@ -527,8 +534,8 @@ All three share one codebase, one truth store, one `createServer()` factory. Eac
 | `get_ticketing_guide` | full | read | read |
 | `get_project_info` | full | — | read |
 | **Ollama** | | | |
-| `ollama_generate` | full | — | — |
-| `ollama_models` | full | — | — |
+| `ollama_generate` | full | full | — |
+| `ollama_models` | full | full | — |
 | `ollama_summarize_logs` | full | — | full |
 | `ollama_digest_service` | full | — | full |
 | **Files** | | | |
@@ -557,7 +564,7 @@ All three share one codebase, one truth store, one `createServer()` factory. Eac
 | **Registry** | | | |
 | `service_registry` | full | read | read |
 | **Training** | | | |
-| `export_training_data` | full | — | — |
+| `export_training_data` | full | read | — |
 | **Context7 (embedded)** | | | |
 | `ctx7_resolve_library` | — | — | full |
 | `ctx7_get_docs` | — | — | full |
@@ -579,7 +586,7 @@ Every MCP connection injects its full tool manifest into agent context at sessio
 
 **Strategy: embed only the operations we need as native minimart tools.** Cherry-pick 3-6 tools per MCP, write thin wrappers.
 
-### Embedded on Electronics (6976) — 8 tools (IMPLEMENTED)
+### Embedded on Electronics (6976) — 8 tools
 
 **Context7 (2 of 2)** — remote MCP client to `https://mcp.context7.com/mcp`:
 
@@ -611,11 +618,11 @@ Ollama workers don't need library docs, GitHub, or browser automation. Zero thir
 
 4 tools, stays as global dev rig MCP connection (`~/.claude.json`). Creative UI component generator — not an ops or worker tool.
 
-### Dev Rig MCP Connections (Post Phase 3)
+### Dev Rig MCP Connections
 
 | Connection | Type | Status |
 |-----------|------|--------|
-| `electronics` | HTTP (6976) | Primary surface — 43 tools including embedded Context7 + GitHub |
+| `electronics` | HTTP (6976) | Primary branch — 43 tools including embedded Context7 + GitHub |
 | `magic` | stdio | Direct — 21st.dev creative tool |
 | `playwright` | stdio | Direct — browser on dev rig |
 | `MCP_DOCKER` | stdio | Docker MCP gateway |
@@ -625,10 +632,10 @@ Ollama workers don't need library docs, GitHub, or browser automation. Zero thir
 ## Operations
 
 ```bash
-# Build all surfaces (shared codebase)
+# Build all branches (shared codebase)
 npm run build
 
-# Restart individual surfaces
+# Restart individual branches
 pm2 restart minimart
 pm2 restart minimart_express
 pm2 restart minimart_electronics
@@ -651,7 +658,7 @@ curl -s -X POST http://localhost:6974/mcp \
 
 ## Troubleshooting
 
-- **Tool not available on this server**: Tool is not in that surface's allowlist. Check the correct `*-allowlist.ts`.
+- **Tool not available on this server**: Tool is not in that branch's allowlist. Check the correct `*-allowlist.ts`.
 - **This transition requires MiniMart (ops authority)**: Electronics transition guard blocked a status change. Use MiniMart for that transition.
 - **HTTP 429 (Express only)**: Too many concurrent requests. Reduce fan-out or add retry/backoff.
 - **MCP HTTP 406**: Ensure client `Accept` supports Streamable MCP media types. Server normalizes common legacy headers.

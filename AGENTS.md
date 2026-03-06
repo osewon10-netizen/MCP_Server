@@ -2,7 +2,7 @@
 
 ## 1. Identity
 
-**What:** MCP (Model Context Protocol) server exposing tools over HTTP for multi-agent ops across 4 service repos on Mini. Three surfaces: MiniMart (6974, 78 ops tools), Express (6975, 33 Ollama worker tools), Electronics (6976, 43 dev rig tools — 35 native + 8 embedded third-party). All share one codebase with explicit allowlists per surface.
+**What:** MCP (Model Context Protocol) server exposing tools over HTTP for multi-agent ops across 4 service repos on Mini. Three branches: MiniMart (6974, 78 ops tools), Express (6975, 33 Ollama worker tools), Electronics (6976, 43 dev rig tools — 35 native + 8 embedded third-party). All share one codebase with explicit allowlists per branch.
 
 **Who uses it:** Claude Code (Opus/Sonnet), Codex, Gemini CLI, OpenClaw — any agent that speaks MCP over HTTP.
 
@@ -116,159 +116,41 @@ Agent (any machine)
 
 **Stateless design:** Each POST /mcp creates a fresh MCP server + transport. No sessions, no state between requests. This is deliberate — the server is a tool bridge, not an application.
 
-## 5. Tool Registry (90 tools total — see README.minimart_surfaces.md for per-surface placement)
+## 5. Tool Registry (90 tools across 23 modules)
 
-### Ticketing & Handoffs (23 tools)
-| Tool | Module | What It Does |
-|------|--------|-------------|
-| `create_ticket` | tickets.ts | Create TK-XXX with detection context, auto-assigns to author |
-| `list_tickets` | tickets.ts | Filter by service/status, shows assigned_to/claimed_by |
-| `view_ticket` | tickets.ts | View entry (checks open index, then archive). mode=human for formatted text |
-| `search_tickets` | tickets.ts | Keyword + tag filter across open index + archive |
-| `update_ticket` | tickets.ts | Update fields directly on index entry (evidence, patch_notes, etc.) |
-| `update_ticket_status` | tickets.ts | Status transition + archive on resolve |
-| `archive_ticket` | tickets.ts | Fill verification object, archive to JSONL, warns if evidence empty |
-| `assign_ticket` | tickets.ts | Set assigned_to, handoff_note, increment handoff_count |
-| `create_patch` | patches.ts | Create PA-XXX with suggestion context (what/why/where) |
-| `list_patches` | patches.ts | Filter by service/status, shows assigned_to/claimed_by |
-| `view_patch` | patches.ts | View entry (checks open index, then archive). mode=human for formatted text |
-| `search_patches` | patches.ts | Keyword + tag filter across open index + archive |
-| `update_patch` | patches.ts | Update fields directly on index entry |
-| `update_patch_status` | patches.ts | Status transition + archive on verify |
-| `archive_patch` | patches.ts | Fill verification object, archive to JSONL, warns if notes empty |
-| `assign_patch` | patches.ts | Set assigned_to, handoff_note, increment handoff_count |
-| `my_queue` | overview.ts | List tickets/patches assigned to agent (prefix matching supported) |
-| `peek` | overview.ts | Read-only view with related entries + project info. No side effects |
-| `pick_up` | overview.ts | Atomic claim — rejects if claimed by another unless force=true |
-| `lookup_tags` | tags.ts | Normalize raw strings via tag-map.json |
-| `validate_failure_class` | tags.ts | Check validity + fuzzy suggestions |
-| `export_training_data` | training.ts | Export archived entries as structured JSONL training records |
+**Full tool listings, per-branch placement, and Quick Comparison table: see `README.minimart_branches.md`.**
 
-### MANTIS Proxy (6 tools)
-| Tool | Module | MANTIS Procedure |
-|------|--------|-----------------|
-| `mantis_events` | mantis.ts | `events.list` / `events.byService` |
-| `mantis_event_summary` | mantis.ts | `events.summary` |
-| `mantis_rules` | mantis.ts | `rules.list` |
-| `mantis_toggle_rule` | mantis.ts | `rules.toggle` |
-| `mantis_run_action` | mantis.ts | `runner.execute` (caller: "agent") |
-| `mantis_list_actions` | mantis.ts | `runner.actionDefinitions` |
+That doc is the single source of truth for tool-to-branch mapping. Do not duplicate tool tables here.
 
-### Health & Ops (7 tools)
-| Tool | Module | Data Source |
-|------|--------|------------|
-| `pm2_status` | health.ts | Direct: `pm2 jlist` CLI |
-| `pm2_restart` | health.ts | Direct: `pm2 restart` + health poll |
-| `service_health` | health.ts | MANTIS: `services.byName` |
-| `disk_usage` | health.ts | Direct: `df -h /` |
-| `backup_status` | health.ts | Direct: reads backup directory |
-| `mantis_health` | health.ts | Direct: `GET /api/health` |
-| `tail_service_url` | health.ts | Direct: HTTP probe any URL with timeout |
+### Summary by module
 
-### Logs (2 tools)
-| Tool | Module | Data Source |
-|------|--------|------------|
-| `service_logs` | logs.ts | PM2 CLI: `pm2 logs --nostream` |
-| `search_logs` | logs.ts | Direct: `grep -i` on PM2 log files |
-
-### Deploy (3 tools)
-| Tool | Module | Data Source |
-|------|--------|------------|
-| `deploy_status` | deploy.ts | MANTIS: `services.byName` |
-| `deploy` | deploy.ts | MANTIS: `runner.execute(deploy)` — refuses if CRITICAL |
-| `rollback` | deploy.ts | MANTIS: `runner.execute(deploy, {rollback: true})` |
-
-### Cron (3 tools)
-| Tool | Module | Data Source |
-|------|--------|------------|
-| `list_crons` | cron.ts | MANTIS: `rules.cronJobs` |
-| `cron_log` | cron.ts | Direct: tail log file from job config |
-| `trigger_cron` | cron.ts | MANTIS: `runner.execute` |
-
-### Review (2 tools)
-| Tool | Module | What It Does |
-|------|--------|-------------|
-| `get_checklist` | review.ts | Read checklist file, optionally extract tier section |
-| `log_review` | review.ts | Store review results as JSON audit trail |
-
-### Memory (3 tools)
-| Tool | Module | What It Does |
-|------|--------|-------------|
-| `get_context` | memory.ts | Search memory markdown files by topic |
-| `set_context` | memory.ts | Write/update a memory file |
-| `get_project_info` | memory.ts | Read AGENTS.md (first 50 lines) + repo path for a service |
-
-### Git (3 tools)
-| Tool | Module | What It Does |
-|------|--------|-------------|
-| `git_log` | git.ts | `git log --oneline` for a service repo |
-| `git_diff` | git.ts | `git diff` with 5000-char truncation |
-| `git_status` | git.ts | `git status --short` for a service repo |
-
-### Ollama (2 tools)
-| Tool | Module | What It Does |
-|------|--------|-------------|
-| `ollama_generate` | ollama.ts | Local LLM generation (2-min timeout, non-streaming) |
-| `ollama_models` | ollama.ts | List available local models |
-
-### Wrappers (2 tools)
-| Tool | Module | What It Does |
-|------|--------|-------------|
-| `list_wrappers` | wrappers.ts | List .sh scripts in agent/wrappers/ |
-| `run_wrapper` | wrappers.ts | Execute a wrapper script with path traversal protection |
-
-### Overview (3 tools)
-| Tool | Module | What It Does |
-|------|--------|-------------|
-| `server_overview` | overview.ts | Single-call aggregate: PM2, disk, tickets, backups, watchdog |
-| `quick_status` | overview.ts | Lightweight: PM2 names + statuses, open ticket/patch counts |
-| `batch_ticket_status` | overview.ts | Batch lookup of TK/PA IDs across open + archive |
-| `batch_archive` | overview.ts | Archive multiple TK/PA IDs in one call — auto-populates Related across batch |
-
-### Files (3 tools)
-| Tool | Module | What It Does |
-|------|--------|-------------|
-| `file_read` | files.ts | Read file within agent/workspace/ (100KB cap) |
-| `file_write` | files.ts | Write file within agent/workspace/ (1MB cap, path-scoped) |
-| `read_source_file` | files.ts | Read source file from a service repo (read-only, 50KB cap, binary rejected) |
-
-### Network (1 tool)
-| Tool | Module | What It Does |
-|------|--------|-------------|
-| `network_quality` | network.ts | Measure latency/jitter/packet loss, record as JSONL time-series |
-
-### OC Tasks (7 tools)
-| Tool | Module | What It Does |
-|------|--------|-------------|
-| `create_oc_task` | oc.ts | Create an OC (Ollama Churns) task — allocates OC-XXX ID, validates task_type against registry |
-| `list_oc_tasks` | oc.ts | List OC tasks by status/type/service, or return bundled deduped escalation packets (`mode=escalation`) |
-| `view_oc_task` | oc.ts | View a single OC task by ID |
-| `update_oc_task` | oc.ts | Update OC fields; on completion validates structured OC output + computes confidence/impact gate and bundle metadata |
-| `archive_oc_task` | oc.ts | Move completed task from index → monthly JSONL archive (tasks/archive/YYYY-MM.jsonl) |
-| `list_oc_archive` | oc.ts | Search archived OC tasks by month, task_type, service (most recent first, limit 50) |
-| `get_task_config` | task-config.ts | Get execution config + prompt template for an OC task type. Omit task_type for full registry |
-
-### Ollama Helpers (2 tools) — frontier-facing, NOT on express
-| Tool | Module | What It Does |
-|------|--------|-------------|
-| `ollama_summarize_logs` | ollama-helpers.ts | Compress PM2 logs into 10-15 line NL summary via Qwen3-4B. 5-min cache, 100KB log cap, fallback to raw on timeout |
-| `ollama_digest_service` | ollama-helpers.ts | One-call service briefing (pm2+logs+tickets+patches → 15-25 line NL). mode=fast skips logs. 5-min cache |
-
-### Embedded Third-Party — Context7 (2 tools, Electronics only)
-| Tool | Module | What It Does |
-|------|--------|-------------|
-| `ctx7_resolve_library` | context7.ts | Resolve library name to Context7-compatible ID (e.g., "next.js" → /vercel/next.js). Uses remote MCP client |
-| `ctx7_get_docs` | context7.ts | Fetch up-to-date docs by Context7 ID + optional topic. 50KB response cap |
-
-### Embedded Third-Party — GitHub (6 tools, Electronics only)
-| Tool | Module | What It Does |
-|------|--------|-------------|
-| `gh_get_file` | github-embedded.ts | Read file/dir from GitHub repo via REST API. 50KB cap. Auth: GITHUB_PAT env |
-| `gh_create_pr` | github-embedded.ts | Create a pull request on a repo |
-| `gh_get_pr_diff` | github-embedded.ts | Get PR diff in unified format. 50KB cap |
-| `gh_list_commits` | github-embedded.ts | List recent commits (short SHA + message + date) |
-| `gh_search_code` | github-embedded.ts | Search code across repos, scoped to GITHUB_OWNER by default |
-| `gh_create_issue` | github-embedded.ts | Create a GitHub issue with optional labels |
+| Module | Tools | Key tools |
+|--------|------:|-----------|
+| tickets.ts | 8 | create/list/view/search/update/update_status/archive/assign |
+| patches.ts | 8 | create/list/view/search/update/update_status/archive/assign |
+| overview.ts | 7 | server_overview, quick_status, batch_ticket_status, batch_archive, my_queue, peek, pick_up |
+| health.ts | 7 | pm2_status/restart, service_health, disk_usage, backup_status, mantis_health, tail_url |
+| oc.ts | 6 | create/list/view/update_oc_task, archive_oc_task, list_oc_archive |
+| mantis.ts | 6 | events, rules, runner proxy |
+| github-embedded.ts | 6 | gh_get_file, gh_create_pr, gh_get_pr_diff, gh_list_commits, gh_search_code, gh_create_issue |
+| plans.ts | 5 | create_plan, list_plans, view_plan, claim_plan, update_phase |
+| memory.ts | 4 | get_context, set_context, get_ticketing_guide, get_project_info |
+| deploy.ts | 3 | deploy_status, deploy, rollback |
+| cron.ts | 3 | list_crons, cron_log, trigger_cron |
+| git.ts | 3 | git_log, git_diff, git_status |
+| files.ts | 3 | file_read, file_write, read_source_file |
+| plans-ops.ts | 3 | complete_plan, review_plan, verify_plan |
+| tags.ts | 2 | lookup_tags, validate_failure_class |
+| review.ts | 2 | get_checklist, log_review |
+| ollama.ts | 2 | ollama_generate, ollama_models |
+| wrappers.ts | 2 | list_wrappers, run_wrapper |
+| ollama-helpers.ts | 2 | ollama_summarize_logs, ollama_digest_service |
+| context7.ts | 2 | ctx7_resolve_library, ctx7_get_docs |
+| logs.ts | 2 | service_logs, search_logs |
+| registry.ts | 1 | service_registry |
+| task-config.ts | 1 | get_task_config |
+| network.ts | 1 | network_quality |
+| training.ts | 1 | export_training_data |
 
 ## 6. Mini Server Filesystem
 
@@ -533,9 +415,9 @@ When tests are added, they should cover:
 
 No other runtime dependencies. All other functionality uses Node.js built-ins (`node:http`, `node:fs/promises`, `node:child_process`, `node:path`, `node:os`, `node:util`).
 
-## 15. Surface Architecture
+## 15. Branch Architecture
 
-All three surfaces share one codebase, one build, one `createServer()` factory. Each has its own allowlist file and entry point. See `README.minimart_surfaces.md` for the authoritative tool-to-surface mapping.
+All three branches share one codebase, one build, one `createServer()` factory. Each has its own allowlist file and entry point. See `README.minimart_branches.md` for the authoritative tool-to-branch mapping.
 
 ### minimart_express (Ollama Worker Lane)
 
@@ -559,7 +441,7 @@ All three surfaces share one codebase, one build, one `createServer()` factory. 
 
 ### Shared Hardening
 
-- All three surfaces validate allowlists against full registry on boot (crashes on typo/rename)
+- All three branches validate allowlists against full registry on boot (crashes on typo/rename)
 - `dispatchTool` fails closed — unknown tools get `"Tool not available on this server"`
 - Express: `file_read`/`file_write` scoped to ollama workspace, `search_logs` capped at 100KB
 - Electronics: transition guards restrict status changes to dev-appropriate transitions
@@ -570,12 +452,12 @@ If you change any of these, update the corresponding counterparts:
 
 | What Changed | Also Update |
 |-------------|-------------|
-| Added/removed a tool | `server.ts` toolModules[], this AGENTS.md, all three `*-allowlist.ts` files, `README.minimart_surfaces.md` |
+| Added/removed a tool | `server.ts` toolModules[], all three `*-allowlist.ts` files, `README.minimart_branches.md` |
 | Changed a filesystem path | `paths.ts` (single source of truth) |
 | Changed a MANTIS procedure name | `mantis-client.ts` callers + verify against MANTIS router |
 | Updated a checklist filename | `review.ts` CHECKLIST_MAP, `registry.ts` SERVICES array |
 | Changed a port | `paths.ts` MCP_PORT/EXPRESS_MCP_PORT/ELECTRONICS_MCP_PORT, `ecosystem.config.cjs` |
 | Added a new service | `paths.ts` SERVICE_REPOS, `registry.ts` SERVICES array |
 | Changed PM2 process name | `ecosystem.config.cjs`, any PM2 CLI references |
-| Renamed a tool | Startup validation catches mismatches — but also update `README.minimart_surfaces.md` |
-| Added/changed OC task type | `task-registry.ts` TASK_REGISTRY, add prompt in `prompts/`, update this AGENTS.md |
+| Renamed a tool | Startup validation catches mismatches — but also update `README.minimart_branches.md` |
+| Added/changed OC task type | `task-registry.ts` TASK_REGISTRY, add prompt in `prompts/` |
