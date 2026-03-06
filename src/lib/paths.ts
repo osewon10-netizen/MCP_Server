@@ -48,6 +48,10 @@ export const WRAPPERS_DIR = `${SERVER_ROOT}/mantis/scripts`;
 // Metrics (time-series data, JSONL files)
 export const METRICS_DIR = `${AGENT_WORKSPACE}/metrics`;
 
+// Runtime data directory (outside repos, per service)
+export const DATA_DIR = `${SERVER_ROOT}/data`;
+export const OLLAMA_EVALS_PATH = `${DATA_DIR}/minimart/ollama_evals.jsonl`;
+
 // MANTIS
 export const MANTIS_TRPC_URL = "http://localhost:3200/api/trpc";
 export const MANTIS_HEALTH_URL = "http://localhost:3200/api/health";

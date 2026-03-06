@@ -4,7 +4,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import type { Tool, CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { ollamaGenerate } from "../lib/ollama-client.js";
-import { SERVICE_REPOS, METRICS_DIR } from "../lib/paths.js";
+import { SERVICE_REPOS, METRICS_DIR, OLLAMA_EVALS_PATH } from "../lib/paths.js";
 import { handleCall as logsHandleCall } from "./logs.js";
 import { handleCall as healthHandleCall } from "./health.js";
 import { handleCall as ticketsHandleCall } from "./tickets.js";
@@ -134,6 +134,20 @@ export const tools: Tool[] = [
         query: { type: "string", description: "Optional natural language question about the diff, e.g. 'what changed in the auth logic'" },
       },
       required: ["service"],
+    },
+  },
+  {
+    name: "ollama_eval",
+    description: "Log a quality rating for the most recent ollama_* tool call. Call this immediately after any ollama_summarize_* or ollama_digest_* call to record whether the output was useful. Accumulates calibration data for scoping Ollama workers.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        tool_name: { type: "string", description: "Which ollama tool was just called, e.g. ollama_summarize_diff" },
+        rating: { type: "string", enum: ["good", "partial", "bad"], description: "good: accurate and useful. partial: mostly right but missing something. bad: wrong or unhelpful." },
+        note: { type: "string", description: "One-liner: what was right, wrong, or missing" },
+        query: { type: "string", description: "The query or question you passed to the ollama tool (if any)" },
+      },
+      required: ["tool_name", "rating"],
     },
   },
   {
@@ -714,6 +728,51 @@ Answer directly. Reference file names, function names, or line context where rel
   return result;
 }
 
+// ─── ollama_eval ─────────────────────────────────────────────────────
+
+interface EvalRecord {
+  ts: string;
+  tool_name: string;
+  rating: "good" | "partial" | "bad";
+  note?: string;
+  query?: string;
+}
+
+async function ollamaEval(args: Record<string, unknown>): Promise<CallToolResult> {
+  const toolName = args.tool_name as string;
+  const rating = args.rating as "good" | "partial" | "bad";
+  const note = args.note as string | undefined;
+  const query = args.query as string | undefined;
+
+  if (!toolName) {
+    return { content: [{ type: "text", text: "tool_name is required" }], isError: true };
+  }
+  if (!["good", "partial", "bad"].includes(rating)) {
+    return { content: [{ type: "text", text: "rating must be good, partial, or bad" }], isError: true };
+  }
+
+  const record: EvalRecord = {
+    ts: new Date().toISOString(),
+    tool_name: toolName,
+    rating,
+    ...(note !== undefined && { note }),
+    ...(query !== undefined && { query }),
+  };
+
+  try {
+    const dir = path.dirname(OLLAMA_EVALS_PATH);
+    await fs.mkdir(dir, { recursive: true });
+    await fs.appendFile(OLLAMA_EVALS_PATH, JSON.stringify(record) + "\n", "utf-8");
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return { content: [{ type: "text", text: `Failed to write eval: ${msg}` }], isError: true };
+  }
+
+  return {
+    content: [{ type: "text", text: JSON.stringify({ logged: true, ...record }, null, 2) }],
+  };
+}
+
 // ─── Dispatch ────────────────────────────────────────────────────────
 
 export async function handleCall(name: string, args: Record<string, unknown>): Promise<CallToolResult> {
@@ -722,6 +781,7 @@ export async function handleCall(name: string, args: Record<string, unknown>): P
     case "ollama_digest_service": return ollamaDigestService(args);
     case "ollama_summarize_source": return ollamaSummarizeSource(args);
     case "ollama_summarize_diff": return ollamaSummarizeDiff(args);
+    case "ollama_eval": return ollamaEval(args);
     default:
       return { content: [{ type: "text", text: `Unknown tool: ${name}` }], isError: true };
   }
