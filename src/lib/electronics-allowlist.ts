@@ -42,6 +42,15 @@ export const ELECTRONICS_ALLOWED_TOOLS = [
   // Ollama helpers — frontier-facing (2)
   "ollama_summarize_logs",
   "ollama_digest_service",
+
+  // IP/PH — full lifecycle except verify (7)
+  "create_plan",
+  "list_plans",
+  "view_plan",
+  "claim_plan",
+  "update_phase",
+  "complete_plan",
+  "review_plan",
 ] as const;
 
 export const ELECTRONICS_ALLOWED_SET = new Set<string>(ELECTRONICS_ALLOWED_TOOLS);

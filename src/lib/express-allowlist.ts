@@ -30,6 +30,8 @@ export const EXPRESS_ALLOWED_TOOLS = [
   "get_ticketing_guide", // ticket_enrich context (read-only)
   "archive_oc_task", // OC task archive (runner calls after completion)
   "list_oc_archive", // OC archive search (read-only)
+  "list_plans", // IP read-only (code_review / gap_detect context)
+  "view_plan", // IP read-only
 ] as const;
 
 export const EXPRESS_ALLOWED_SET = new Set<string>(EXPRESS_ALLOWED_TOOLS);

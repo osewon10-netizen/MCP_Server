@@ -1,12 +1,12 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import type { TicketIndex, PatchIndex, OcIndex } from "../types.js";
+import type { TicketIndex, PatchIndex, OcIndex, IpIndex } from "../types.js";
 
 /**
  * Read and parse an index.json file.
  * Returns typed TicketIndex or PatchIndex.
  */
-export async function readIndex<T extends TicketIndex | PatchIndex | OcIndex>(
+export async function readIndex<T extends TicketIndex | PatchIndex | OcIndex | IpIndex>(
   indexPath: string
 ): Promise<T> {
   const raw = await fs.readFile(indexPath, "utf-8");
@@ -22,7 +22,7 @@ export async function readIndex<T extends TicketIndex | PatchIndex | OcIndex>(
  * 5. Atomic rename .tmp → index.json
  * On failure: restore .bak, preserve corrupt file as evidence.
  */
-export async function writeIndex<T extends TicketIndex | PatchIndex | OcIndex>(
+export async function writeIndex<T extends TicketIndex | PatchIndex | OcIndex | IpIndex>(
   indexPath: string,
   data: T
 ): Promise<void> {

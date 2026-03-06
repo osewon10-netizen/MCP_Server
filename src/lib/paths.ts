@@ -17,6 +17,11 @@ export const PATCH_ARCHIVE = path.join(PATCH_DIR, "archive.jsonl");
 export const TAG_MAP_PATH = `${AGENT_WORKSPACE}/tickets/tag-map.json`;
 export const FAILURE_CLASSES_PATH = `${AGENT_WORKSPACE}/tickets/failure-classes.json`;
 
+// IP/PH (Implementation Plans)
+export const PLANS_DIR = `${AGENT_WORKSPACE}/plans`;
+export const PLANS_INDEX = path.join(PLANS_DIR, "index.json");
+export const PLANS_ARCHIVE = path.join(PLANS_DIR, "archive.jsonl");
+
 // Memory/context storage
 export const MEMORY_DIR = `${AGENT_WORKSPACE}/memory`;
 

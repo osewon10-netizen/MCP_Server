@@ -112,6 +112,12 @@ export const MINIMART_ALLOWED_TOOLS = [
 
   // Service registry (1)
   "service_registry",
+
+  // IP/PH — read + review + verify (4)
+  "list_plans",
+  "view_plan",
+  "review_plan",
+  "verify_plan",
 ] as const;
 
 export const MINIMART_ALLOWED_SET = new Set<string>(MINIMART_ALLOWED_TOOLS);

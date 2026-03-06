@@ -27,6 +27,8 @@ import * as trainingMod from "./tools/training.js";
 import * as ocMod from "./tools/oc.js";
 import * as taskConfigMod from "./tools/task-config.js";
 import * as ollamaHelpersMod from "./tools/ollama-helpers.js";
+import * as plansMod from "./tools/plans.js";
+import * as plansOpsMod from "./tools/plans-ops.js";
 
 type ToolHandler = (name: string, args: Record<string, unknown>) => Promise<CallToolResult>;
 
@@ -57,6 +59,8 @@ const toolModules: ToolModule[] = [
   ocMod,
   taskConfigMod,
   ollamaHelpersMod,
+  plansMod,
+  plansOpsMod,
 ];
 
 /**

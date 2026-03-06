@@ -160,6 +160,96 @@ export interface OcIndex {
   tasks: Record<string, OcTaskEntry>;
 }
 
+// === IP/PH (Implementation Plan / Phase) Types ===
+
+export interface IpHandoff {
+  changes_summary: string;
+  commits: string[];
+  services_affected: string[];
+  verify_checklist: string[];
+  expected_visible: string[];
+  expected_non_visible: string[];
+  risk_notes?: string;
+  not_in_scope?: string[];
+  docs_updated?: string[];
+  docs_to_update?: string[];
+}
+
+export interface IpReview {
+  reviewed_by: string;
+  reviewed_at: string;
+  review_notes?: string;
+  docs_synced: {
+    agents_md: boolean;
+    readme_md: boolean;
+    code_review_checklist: boolean;
+    code_audit_checklist: boolean;
+  };
+  additional_docs?: string[];
+}
+
+export interface IpVerification {
+  verified_by: string;
+  verified_at: string;
+  deployed: boolean;
+  deploy_method?: string;
+  checklist_results: Array<{
+    item: string;
+    passed: boolean;
+    notes?: string;
+  }>;
+  health_check: string;
+  outcome: "verified" | "failed" | "partial";
+  failure_notes?: string;
+  follow_up_tk?: string[];
+  follow_up_pa?: string[];
+}
+
+export interface PhEntry {
+  summary: string;
+  description?: string;
+  status: "pending" | "in_progress" | "done";
+  depends_on?: string[];
+  started_at?: string;
+  completed_at?: string;
+  commits?: string[];
+  files_changed?: string[];
+  notes?: string;
+}
+
+export interface IpEntry {
+  service: string;
+  summary: string;
+  description: string;
+  why_now?: string;
+  status: "open" | "claimed" | "implemented" | "reviewed" | "verified";
+  created: string;
+  created_by: string;
+  claimed_by?: string;
+  claimed_at?: string;
+  implemented_at?: string;
+  reviewed_by?: string;
+  reviewed_at?: string;
+  verified_by?: string;
+  verified_at?: string;
+  phases: Record<string, PhEntry>;
+  phase_order: string[];
+  handoff?: IpHandoff;
+  review?: IpReview;
+  verification?: IpVerification;
+  related_pa?: string[];
+  related_tk?: string[];
+  spec_path?: string;
+  tags: string[];
+  assigned_to?: string;
+  updated_at?: string;
+}
+
+export interface IpIndex {
+  next_id: Record<string, number>;
+  plans: Record<string, IpEntry>;
+}
+
 // === Tag System ===
 
 export interface TagMap {
