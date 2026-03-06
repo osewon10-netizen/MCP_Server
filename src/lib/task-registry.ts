@@ -56,9 +56,9 @@ export const TASK_REGISTRY: Record<string, TaskTypeConfig> = {
     model: "kamekichi128/qwen3-4b-instruct-2507:latest",
     prompt_file: "gap_detect.md",
     required_tools: ["service_logs", "search_logs"],
-    output_path: "results/gap-report.md",
-    requires_service: false,
-    per_service: false,
+    output_path: "results/gap-report/{service}.md",
+    requires_service: true,
+    per_service: true,
   },
   ticket_enrich: {
     task_type: "ticket_enrich",
