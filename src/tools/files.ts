@@ -56,7 +56,7 @@ export const tools: Tool[] = [
   },
   {
     name: "read_source_file",
-    description: "Read a source file from a service repo (read-only). Path must be relative to the service repo root. Max 50KB. Rejects binary files and paths outside the service repo.",
+    description: "Read a source file from a service repo (read-only). Path must be relative to the service repo root. Max 50KB. Rejects binary files and paths outside the service repo. Supports offset (1-based line start) and limit (max lines) for partial reads.",
     inputSchema: {
       type: "object",
       properties: {
@@ -67,6 +67,14 @@ export const tools: Tool[] = [
         path: {
           type: "string",
           description: "Relative path within the service repo, e.g. 'src/lib/paths.ts'",
+        },
+        offset: {
+          type: "number",
+          description: "1-based line number to start from (default: 1)",
+        },
+        limit: {
+          type: "number",
+          description: "Maximum number of lines to return (default: all)",
         },
       },
       required: ["service", "path"],
@@ -224,11 +232,25 @@ async function readSourceFile(args: Record<string, unknown>): Promise<CallToolRe
       };
     }
 
-    const content = await fs.readFile(resolved, "utf-8");
+    const rawContent = await fs.readFile(resolved, "utf-8");
+    const offsetArg = args.offset !== undefined ? Math.max(1, Math.floor(args.offset as number)) : 1;
+    const limitArg = args.limit !== undefined ? Math.max(1, Math.floor(args.limit as number)) : undefined;
+    let content = rawContent;
+    let rangeInfo: Record<string, unknown> = {};
+    if (offsetArg > 1 || limitArg !== undefined) {
+      const allLines = rawContent.split("\n");
+      const totalLines = allLines.length;
+      const startIdx = offsetArg - 1;
+      const slicedLines = limitArg !== undefined
+        ? allLines.slice(startIdx, startIdx + limitArg)
+        : allLines.slice(startIdx);
+      content = slicedLines.join("\n");
+      rangeInfo = { total_lines: totalLines, offset: offsetArg, limit: limitArg ?? null, lines_returned: slicedLines.length };
+    }
     return {
       content: [{
         type: "text",
-        text: JSON.stringify({ service, path: userPath, size: stat.size, content }, null, 2),
+        text: JSON.stringify({ service, path: userPath, size: stat.size, ...rangeInfo, content }, null, 2),
       }],
     };
   } catch (err: unknown) {

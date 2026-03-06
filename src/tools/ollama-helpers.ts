@@ -14,6 +14,16 @@ const MAX_LOG_BYTES = 100 * 1024; // 100KB
 const MAX_RESPONSE_BYTES = 25 * 1024; // 25KB
 const LINES_DEFAULT = 200;
 const LINES_MAX = 500;
+const MAX_SOURCE_BYTES = 50 * 1024; // 50KB cap for source reads
+const MAX_SOURCE_RESPONSE_BYTES = 2 * 1024; // ~2KB answer cap
+const SOURCE_BINARY_EXTENSIONS = new Set([
+  ".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".ico",
+  ".pdf", ".zip", ".tar", ".gz", ".bz2", ".7z",
+  ".exe", ".bin", ".dylib", ".so", ".dll",
+  ".db", ".sqlite", ".sqlite3",
+  ".woff", ".woff2", ".ttf", ".eot",
+  ".mp4", ".mp3", ".wav",
+]);
 
 // ─── Cache ───────────────────────────────────────────────────────────
 
@@ -107,6 +117,19 @@ export const tools: Tool[] = [
         },
       },
       required: ["service"],
+    },
+  },
+  {
+    name: "ollama_summarize_source",
+    description: "Query a source file from a service repo using natural language. Reads the file, sends it to Ollama with your question, returns a focused answer (~2KB). Use instead of read_source_file when you need to understand specific logic rather than see raw code. Cap 50KB input. Cached 5 min.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        service: { type: "string", description: "Service name from registry" },
+        path: { type: "string", description: "Relative path within service repo, e.g. 'src/tools/oc.ts'" },
+        query: { type: "string", description: "Natural language question about the file, e.g. 'show me the force_complete logic'" },
+      },
+      required: ["service", "path", "query"],
     },
   },
 ];
@@ -413,12 +436,152 @@ Be direct and specific. Reference ticket/patch IDs. If everything looks clean, s
   return result;
 }
 
+async function ollamaSummarizeSource(args: Record<string, unknown>): Promise<CallToolResult> {
+  const service = args.service as string;
+  const filePath = args.path as string;
+  const query = args.query as string;
+
+  if (!SERVICE_REPOS[service]) {
+    const known = Object.keys(SERVICE_REPOS).join(", ");
+    return { content: [{ type: "text", text: `Unknown service: "${service}". Known: ${known}` }], isError: true };
+  }
+  if (path.isAbsolute(filePath) || filePath.includes("..")) {
+    return { content: [{ type: "text", text: "Path must be relative and must not contain '..'" }], isError: true };
+  }
+  const ext = path.extname(filePath).toLowerCase();
+  if (SOURCE_BINARY_EXTENSIONS.has(ext)) {
+    return { content: [{ type: "text", text: `Binary file type not supported: ${ext}` }], isError: true };
+  }
+
+  const repoRoot = SERVICE_REPOS[service];
+  const resolved = path.resolve(repoRoot, filePath);
+  if (!resolved.startsWith(repoRoot + path.sep) && resolved !== repoRoot) {
+    return { content: [{ type: "text", text: "Path resolves outside service repo boundary" }], isError: true };
+  }
+
+  const key = cacheKey("ollama_summarize_source", service, `${filePath}:${query}`);
+  const cached = getCached(key);
+  if (cached) {
+    const parsed = JSON.parse((cached.content[0] as { text: string }).text);
+    parsed.meta.cached = true;
+    return { content: [{ type: "text", text: JSON.stringify(parsed, null, 2) }] };
+  }
+
+  const start = Date.now();
+  let fileContent = "";
+  let fileSize = 0;
+  let ollamaOk = false;
+  let fallback = false;
+  let inputChars = 0;
+  let outputChars = 0;
+
+  try {
+    const stat = await fs.stat(resolved);
+    if (!stat.isFile()) {
+      return { content: [{ type: "text", text: `Not a file: ${filePath}` }], isError: true };
+    }
+    fileSize = stat.size;
+    if (fileSize > MAX_SOURCE_BYTES) {
+      return { content: [{ type: "text", text: `File too large: ${fileSize} bytes (max ${MAX_SOURCE_BYTES})` }], isError: true };
+    }
+    fileContent = await fs.readFile(resolved, "utf-8");
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return { content: [{ type: "text", text: `Read error: ${msg}` }], isError: true };
+  }
+
+  const prompt = `You are a code analyst. Answer the developer's question about the following source file concisely and precisely.
+
+## File: ${service}/${filePath}
+
+\`\`\`
+${fileContent}
+\`\`\`
+
+## Question
+${query}
+
+## Instructions
+Answer directly. Reference specific line numbers, function names, or variable names where relevant. Keep your answer under 2KB. No filler.`;
+
+  inputChars = prompt.length;
+  let answer: string | null = null;
+  let errorMsg: string | undefined;
+  try {
+    let response = await ollamaGenerate(HELPER_MODEL, prompt);
+    if (Buffer.byteLength(response, "utf-8") > MAX_SOURCE_RESPONSE_BYTES) {
+      response = response.slice(0, MAX_SOURCE_RESPONSE_BYTES) + "\n...(truncated)";
+    }
+    answer = response;
+    outputChars = response.length;
+    ollamaOk = true;
+  } catch (err) {
+    errorMsg = err instanceof Error ? err.message : String(err);
+    fallback = true;
+  }
+
+  const latencyMs = Date.now() - start;
+
+  await logUsage({
+    ts: new Date().toISOString(),
+    tool: "ollama_summarize_source",
+    service,
+    mode: null,
+    latency_ms: latencyMs,
+    ok: ollamaOk,
+    cached: false,
+    fallback,
+    model: HELPER_MODEL,
+    input_chars: inputChars,
+    output_chars: outputChars,
+  });
+
+  if (fallback) {
+    return {
+      content: [{
+        type: "text",
+        text: JSON.stringify({
+          service,
+          path: filePath,
+          query,
+          answer: null,
+          fallback: true,
+          error: errorMsg ?? "Ollama unavailable",
+          meta: { latency_ms: latencyMs, cached: false },
+        }, null, 2),
+      }],
+    };
+  }
+
+  const result: CallToolResult = {
+    content: [{
+      type: "text",
+      text: JSON.stringify({
+        service,
+        path: filePath,
+        query,
+        answer,
+        meta: {
+          model: HELPER_MODEL,
+          latency_ms: latencyMs,
+          file_size: fileSize,
+          cached: false,
+        },
+      }, null, 2),
+    }],
+  };
+
+  setCached(key, result);
+  return result;
+}
+
 // ─── Dispatch ────────────────────────────────────────────────────────
 
 export async function handleCall(name: string, args: Record<string, unknown>): Promise<CallToolResult> {
   switch (name) {
     case "ollama_summarize_logs": return ollamaSummarizeLogs(args);
     case "ollama_digest_service": return ollamaDigestService(args);
+    case "ollama_summarize_source": return ollamaSummarizeSource(args);
     default:
       return { content: [{ type: "text", text: `Unknown tool: ${name}` }], isError: true };
   }
