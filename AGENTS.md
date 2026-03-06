@@ -2,7 +2,7 @@
 
 ## 1. Identity
 
-**What:** MCP (Model Context Protocol) server exposing 64 structured tools over HTTP for multi-agent ops across 4 service repos on Mini. Also runs a scoped instance (`minimart_express`) on port 6975 with 30 tools for the local Ollama agent.
+**What:** MCP (Model Context Protocol) server exposing tools over HTTP for multi-agent ops across 4 service repos on Mini. Three surfaces: MiniMart (6974, 74 ops tools), Express (6975, 31 Ollama worker tools), Electronics (6976, 28 dev rig tools). All share one codebase with explicit allowlists per surface.
 
 **Who uses it:** Claude Code (Opus/Sonnet), Codex, Gemini CLI, OpenClaw — any agent that speaks MCP over HTTP.
 
@@ -18,11 +18,11 @@
 | Language | TypeScript, compiled with `tsc` to `build/` |
 | Module system | ESM (`"type": "module"` in package.json) |
 | Target | ES2022, NodeNext module resolution |
-| Entry point | `build/index.js` (compiled from `src/index.ts`) |
-| Express entry | `build/index-express.js` (compiled from `src/index-express.ts`) |
-| Process manager | PM2 (`ecosystem.config.cjs`) — two processes: minimart, minimart_express |
-| Port (main) | 6974 (hardcoded in `src/lib/paths.ts`) |
-| Port (express) | 6975, localhost-only (19 tools for Ollama agent) |
+| Entry points | `build/index.js`, `build/index-express.js`, `build/index-electronics.js` |
+| Process manager | PM2 (`ecosystem.config.cjs`) — three processes: minimart, minimart_express, minimart_electronics |
+| Port (MiniMart) | 6974, `0.0.0.0` — ops/verify/archive (74 tools) |
+| Port (Express) | 6975, `127.0.0.1` — Ollama worker lane (31 tools) |
+| Port (Electronics) | 6976, `0.0.0.0` — dev rig agents (28 tools) |
 | Strict mode | Yes (`strict: true` in tsconfig) |
 
 ## 3. File Map
@@ -36,13 +36,17 @@ mini_cp_server/
 ├── prompts/                  # 12 OC task prompt templates (loaded at runtime by get_task_config)
 │
 ├── src/
-│   ├── index.ts              # HTTP entry — POST /mcp, GET /health (port 6974)
-│   ├── index-express.ts      # Scoped HTTP entry — 30 tools, localhost:6975, concurrency guard
-│   ├── server.ts             # MCP server factory — registers 21 tool modules, optional allowlist
+│   ├── index.ts              # MiniMart entry — 74 tools, 0.0.0.0:6974, explicit allowlist
+│   ├── index-express.ts      # Express entry — 31 tools, 127.0.0.1:6975, concurrency guard
+│   ├── index-electronics.ts  # Electronics entry — 28 tools, 0.0.0.0:6976, transition guards
+│   ├── server.ts             # MCP server factory — registers 21 tool modules, allowlist + transitionGuards
 │   ├── types.ts              # All shared interfaces (Ticket, Patch, MANTIS, etc.)
 │   │
 │   ├── lib/                  # Shared utilities (no tools here)
 │   │   ├── paths.ts          # All filesystem paths, URLs, ports, getFileWorkspace() — single source of truth
+│   │   ├── minimart-allowlist.ts  # Explicit allowlist for MiniMart (6974) — 74 tools
+│   │   ├── express-allowlist.ts   # Explicit allowlist for Express (6975) — 31 tools
+│   │   ├── electronics-allowlist.ts # Explicit allowlist for Electronics (6976) — 28 tools
 │   │   ├── index-manager.ts  # Hardened index.json read/write (backup+fsync+validate+rename)
 │   │   ├── archive.ts        # JSONL archive operations (append, search, lookup, migration)
 │   │   ├── tag-normalizer.ts     # Tag-map.json loader + normalizer
@@ -110,7 +114,7 @@ Agent (any machine)
 
 **Stateless design:** Each POST /mcp creates a fresh MCP server + transport. No sessions, no state between requests. This is deliberate — the server is a tool bridge, not an application.
 
-## 5. Tool Registry (64 tools)
+## 5. Tool Registry (74 tools total — see README.minimart_surfaces.md for per-surface placement)
 
 ### Ticketing & Handoffs (23 tools)
 | Tool | Module | What It Does |
@@ -511,27 +515,36 @@ When tests are added, they should cover:
 
 No other runtime dependencies. All other functionality uses Node.js built-ins (`node:http`, `node:fs/promises`, `node:child_process`, `node:path`, `node:os`, `node:util`).
 
-## 15. minimart_express (Scoped Server for Ollama)
+## 15. Surface Architecture
 
-A second MCP server instance for the local Ollama agent (Qwen3 4B). Same codebase, same build — parameterized via `ServerConfig.allowedTools`.
+All three surfaces share one codebase, one build, one `createServer()` factory. Each has its own allowlist file and entry point. See `README.minimart_surfaces.md` for the authoritative tool-to-surface mapping.
+
+### minimart_express (Ollama Worker Lane)
 
 | Key | Value |
 |-----|-------|
 | Port | 6975, localhost only (`127.0.0.1`) |
 | PM2 process | `minimart_express` |
+| Allowlist | `src/lib/express-allowlist.ts` (31 tools) |
 | Workspace | `/server/agent/ollama/` (via `MINIMART_FILE_WORKSPACE` env var) |
-| Tools | 28 (read-only + file ops + OC task CRUD/archive + task config + ticket/patch reads, scoped to ollama workspace) |
 | Concurrency | Max 4 concurrent requests (429 if exceeded) |
 
-**Allowed tools:** `file_read`, `file_write`, `ollama_generate`, `ollama_models`, `service_logs`, `search_logs`, `pm2_status`, `backup_status`, `service_health`, `disk_usage`, `git_log`, `git_diff`, `git_status`, `service_registry`, `get_checklist`, `create_oc_task`, `list_oc_tasks`, `view_oc_task`, `update_oc_task`, `get_task_config`, `list_tickets`, `list_patches`, `search_tickets`, `search_patches`, `export_training_data`, `lookup_tags`, `validate_failure_class`, `get_ticketing_guide`, `archive_oc_task`, `list_oc_archive`
+### minimart_electronics (Dev Rig Agents)
 
-**Blocked:** Ticket/patch create/update/archive/assign, deploy, rollback, pm2_restart, run_wrapper, mantis mutations, set_context, get_context, overview tools, network_quality, cron tools
+| Key | Value |
+|-----|-------|
+| Port | 6976, `0.0.0.0` |
+| PM2 process | `minimart_electronics` |
+| Allowlist | `src/lib/electronics-allowlist.ts` (28 native tools) |
+| Workspace | `/server/agent/workspace/` (same as MiniMart) |
+| Transition guards | TK: open→in-progress, in-progress→patched. PA: open→in-review, in-review→applied |
 
-**Hardening:**
-- Allowlist validated against full tool registry on boot (crashes on typo/rename)
-- `dispatchTool` fails closed — unknown tools get `"Tool not available on this server"` with no fallback
-- `file_read`/`file_write` scoped to `/server/agent/ollama/` via `getFileWorkspace()` + `resolveSafe()`
-- `search_logs` output capped at 100KB
+### Shared Hardening
+
+- All three surfaces validate allowlists against full registry on boot (crashes on typo/rename)
+- `dispatchTool` fails closed — unknown tools get `"Tool not available on this server"`
+- Express: `file_read`/`file_write` scoped to ollama workspace, `search_logs` capped at 100KB
+- Electronics: transition guards restrict status changes to dev-appropriate transitions
 
 ## 16. Keep These In Sync
 
@@ -539,12 +552,12 @@ If you change any of these, update the corresponding counterparts:
 
 | What Changed | Also Update |
 |-------------|-------------|
-| Added/removed a tool | `server.ts` toolModules[], this AGENTS.md tool registry, express allowlist if applicable |
+| Added/removed a tool | `server.ts` toolModules[], this AGENTS.md, all three `*-allowlist.ts` files, `README.minimart_surfaces.md` |
 | Changed a filesystem path | `paths.ts` (single source of truth) |
 | Changed a MANTIS procedure name | `mantis-client.ts` callers + verify against MANTIS router |
 | Updated a checklist filename | `review.ts` CHECKLIST_MAP, `registry.ts` SERVICES array |
-| Changed the port | `paths.ts` MCP_PORT/EXPRESS_MCP_PORT, `ecosystem.config.cjs` if applicable |
+| Changed a port | `paths.ts` MCP_PORT/EXPRESS_MCP_PORT/ELECTRONICS_MCP_PORT, `ecosystem.config.cjs` |
 | Added a new service | `paths.ts` SERVICE_REPOS, `registry.ts` SERVICES array |
 | Changed PM2 process name | `ecosystem.config.cjs`, any PM2 CLI references |
-| Renamed a tool | Check `index-express.ts` ALLOWED_TOOLS — startup validation will catch mismatches |
+| Renamed a tool | Startup validation catches mismatches — but also update `README.minimart_surfaces.md` |
 | Added/changed OC task type | `task-registry.ts` TASK_REGISTRY, add prompt in `prompts/`, update this AGENTS.md |

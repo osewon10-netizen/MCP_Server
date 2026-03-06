@@ -1,12 +1,20 @@
-import { createServer, validateAllowlist } from "./server.js";
+import { createServer, validateAllowlist, type TransitionGuards } from "./server.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { createServer as createHttpServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { EXPRESS_MCP_PORT, OLLAMA_WORKSPACE } from "./lib/paths.js";
-import { EXPRESS_ALLOWED_SET, EXPRESS_ALLOWED_TOOLS } from "./lib/express-allowlist.js";
+import { ELECTRONICS_MCP_PORT } from "./lib/paths.js";
+import { ELECTRONICS_ALLOWED_SET, ELECTRONICS_ALLOWED_TOOLS } from "./lib/electronics-allowlist.js";
 import { normalizeMcpHeaders } from "./lib/mcp-http-compat.js";
 
-const MAX_CONCURRENT_REQUESTS = 4;
-let inFlight = 0;
+const ELECTRONICS_TRANSITION_GUARDS: TransitionGuards = {
+  ticket: {
+    open: ["in-progress"],
+    "in-progress": ["patched"],
+  },
+  patch: {
+    open: ["in-review"],
+    "in-review": ["applied"],
+  },
+};
 
 async function parseJsonBody(req: IncomingMessage): Promise<unknown> {
   return new Promise((resolve, reject) => {
@@ -27,7 +35,11 @@ async function parseJsonBody(req: IncomingMessage): Promise<unknown> {
 async function handleMcp(req: IncomingMessage, res: ServerResponse): Promise<void> {
   normalizeMcpHeaders(req);
 
-  const server = createServer({ name: "minimart_express", allowedTools: EXPRESS_ALLOWED_SET });
+  const server = createServer({
+    name: "minimart_electronics",
+    allowedTools: ELECTRONICS_ALLOWED_SET,
+    transitionGuards: ELECTRONICS_TRANSITION_GUARDS,
+  });
   const transport = new StreamableHTTPServerTransport({
     sessionIdGenerator: undefined,
   });
@@ -39,18 +51,10 @@ async function handleMcp(req: IncomingMessage, res: ServerResponse): Promise<voi
 }
 
 async function main(): Promise<void> {
-  process.env.MINIMART_FILE_WORKSPACE = process.env.MINIMART_FILE_WORKSPACE ?? OLLAMA_WORKSPACE;
-
-  validateAllowlist(EXPRESS_ALLOWED_SET);
+  validateAllowlist(ELECTRONICS_ALLOWED_SET);
 
   const httpServer = createHttpServer(async (req, res) => {
     if (req.method === "POST" && req.url === "/mcp") {
-      if (inFlight >= MAX_CONCURRENT_REQUESTS) {
-        res.writeHead(429, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ error: "too many concurrent requests" }));
-        return;
-      }
-      inFlight++;
       try {
         await handleMcp(req, res);
       } catch (err) {
@@ -59,15 +63,13 @@ async function main(): Promise<void> {
           res.writeHead(500);
           res.end("Internal error");
         }
-      } finally {
-        inFlight--;
       }
       return;
     }
 
     if (req.method === "GET" && req.url === "/health") {
       res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ status: "ok", service: "minimart_express", tools: EXPRESS_ALLOWED_TOOLS.length }));
+      res.end(JSON.stringify({ status: "ok", service: "minimart_electronics", tools: ELECTRONICS_ALLOWED_TOOLS.length }));
       return;
     }
 
@@ -75,9 +77,8 @@ async function main(): Promise<void> {
     res.end("Not found");
   });
 
-  httpServer.listen(EXPRESS_MCP_PORT, "127.0.0.1", () => {
-    const workspace = process.env.MINIMART_FILE_WORKSPACE;
-    console.error(`minimart_express started | tools: ${EXPRESS_ALLOWED_TOOLS.length} | workspace: ${workspace} | port: ${EXPRESS_MCP_PORT}`);
+  httpServer.listen(ELECTRONICS_MCP_PORT, () => {
+    console.error(`minimart_electronics started | tools: ${ELECTRONICS_ALLOWED_TOOLS.length} | port: ${ELECTRONICS_MCP_PORT}`);
   });
 }
 

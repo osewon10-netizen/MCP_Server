@@ -1,7 +1,8 @@
-import { createServer } from "./server.js";
+import { createServer, validateAllowlist } from "./server.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { createServer as createHttpServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { MCP_PORT } from "./lib/paths.js";
+import { MINIMART_ALLOWED_SET, MINIMART_ALLOWED_TOOLS } from "./lib/minimart-allowlist.js";
 import { normalizeMcpHeaders } from "./lib/mcp-http-compat.js";
 
 /** Collect raw body bytes from an IncomingMessage and parse as JSON. */
@@ -26,7 +27,7 @@ async function handleMcp(req: IncomingMessage, res: ServerResponse): Promise<voi
 
   // Create a fresh transport + server per request (stateless mode).
   // This is safe for a single-user local-network server.
-  const server = createServer();
+  const server = createServer({ name: "minimart", allowedTools: MINIMART_ALLOWED_SET });
   const transport = new StreamableHTTPServerTransport({
     sessionIdGenerator: undefined, // stateless
   });
@@ -38,13 +39,15 @@ async function handleMcp(req: IncomingMessage, res: ServerResponse): Promise<voi
 }
 
 async function main(): Promise<void> {
+  validateAllowlist(MINIMART_ALLOWED_SET);
+
   const httpServer = createHttpServer(async (req, res) => {
     try {
       if (req.method === "POST" && req.url === "/mcp") {
         await handleMcp(req, res);
       } else if (req.method === "GET" && req.url === "/health") {
         res.writeHead(200, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ status: "ok", service: "minimart" }));
+        res.end(JSON.stringify({ status: "ok", service: "minimart", tools: MINIMART_ALLOWED_TOOLS.length }));
       } else {
         res.writeHead(404);
         res.end("Not found");
@@ -59,7 +62,7 @@ async function main(): Promise<void> {
   });
 
   httpServer.listen(MCP_PORT, () => {
-    console.error(`minimart listening on port ${MCP_PORT}`);
+    console.error(`minimart started | tools: ${MINIMART_ALLOWED_TOOLS.length} | port: ${MCP_PORT}`);
   });
 }
 

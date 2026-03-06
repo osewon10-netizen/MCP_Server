@@ -25,5 +25,17 @@ module.exports = {
       error_file: "/Users/minmac.serv/server/logs/minimart_express/pm2.err.log",
       out_file: "/Users/minmac.serv/server/logs/minimart_express/pm2.out.log",
     },
+    {
+      name: "minimart_electronics",
+      script: "build/index-electronics.js",
+      cwd: "/Users/minmac.serv/server/minimart",
+      interpreter: "node",
+      env: {
+        NODE_ENV: "production",
+      },
+      max_memory_restart: "128M",
+      error_file: "/Users/minmac.serv/server/logs/minimart_electronics/pm2.err.log",
+      out_file: "/Users/minmac.serv/server/logs/minimart_electronics/pm2.out.log",
+    },
   ],
 };

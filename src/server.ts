@@ -59,9 +59,18 @@ const toolModules: ToolModule[] = [
   ollamaHelpersMod,
 ];
 
+/**
+ * Transition guards restrict which status transitions are allowed on a surface.
+ * Key format: "ticket" or "patch". Value: map of current_status → allowed new statuses.
+ * If undefined (MiniMart/Express), all valid transitions are permitted.
+ * If set (Electronics), only listed transitions are allowed — others are rejected.
+ */
+export type TransitionGuards = Record<string, Record<string, string[]>>;
+
 export interface ServerConfig {
   name?: string;
   allowedTools?: Set<string>;
+  transitionGuards?: TransitionGuards;
 }
 
 export function getRegisteredToolDefinitions(): Tool[] {
@@ -81,10 +90,13 @@ function getAllToolDefinitions(allowed?: Set<string>): Tool[] {
 async function dispatchTool(
   name: string,
   args: Record<string, unknown>,
-  allowed?: Set<string>
+  allowed?: Set<string>,
+  surfaceName?: string,
 ): Promise<CallToolResult> {
   // Fail closed: if allowlist is set and tool isn't in it, reject immediately
   if (allowed && !allowed.has(name)) {
+    const surface = surfaceName ?? "unknown";
+    console.error(`[guard] ${surface} blocked: ${name} (not in allowlist)`);
     return {
       content: [{ type: "text", text: `Tool not available on this server: ${name}` }],
       isError: true,
@@ -114,9 +126,20 @@ export function validateAllowlist(allowed: Set<string>): void {
   }
 }
 
+let activeTransitionGuards: TransitionGuards | undefined;
+
+/**
+ * Get the active transition guards for this server instance.
+ * Returns undefined if no guards are set (MiniMart/Express — all transitions allowed).
+ */
+export function getTransitionGuards(): TransitionGuards | undefined {
+  return activeTransitionGuards;
+}
+
 export function createServer(config?: ServerConfig): Server {
   const serverName = config?.name ?? "minimart";
   const allowed = config?.allowedTools;
+  activeTransitionGuards = config?.transitionGuards;
 
   const server = new Server(
     { name: serverName, version: "1.0.0" },
@@ -129,7 +152,7 @@ export function createServer(config?: ServerConfig): Server {
 
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const { name, arguments: args } = request.params;
-    return await dispatchTool(name, (args ?? {}) as Record<string, unknown>, allowed);
+    return await dispatchTool(name, (args ?? {}) as Record<string, unknown>, allowed, serverName);
   });
 
   return server;

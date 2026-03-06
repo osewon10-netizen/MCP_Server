@@ -67,6 +67,7 @@ export const PROMPTS_DIR = path.join(SERVER_ROOT, "minimart/prompts");
 // MCP server config
 export const MCP_PORT = 6974;
 export const EXPRESS_MCP_PORT = 6975;
+export const ELECTRONICS_MCP_PORT = 6976;
 
 // Runtime-resolvable file workspace (env override for express server)
 export function getFileWorkspace(): string {
