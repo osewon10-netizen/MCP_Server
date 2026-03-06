@@ -28,3 +28,21 @@ Analyze the logs and report:
 ```
 
 If logs look normal: status "healthy", empty patterns and anomalies.
+
+## Examples (follow these exactly)
+
+Example 1 - action FAIL:
+Log: [cp-runner] executing: set_config - set_config FAIL (13ms)
+-> severity: "warning" (failed action, not a crash)
+
+Example 2 - rejected line:
+Log: [cp-runner] rejected: Action "restart" requires a service parameter
+-> severity: "info" (input validation working correctly)
+
+Example 3 - service crash:
+Log: [minimart] Error: FATAL - process exited with code 1
+-> severity: "critical" (service down)
+
+Example 4 - normal restart:
+Log: [cp-runner] shutting down... / [cp-runner] starting...
+-> NOT an anomaly (normal lifecycle event during deploy)

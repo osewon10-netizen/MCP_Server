@@ -809,10 +809,11 @@ async function ollamaTriageTicket(args: Record<string, unknown>): Promise<CallTo
 ${entryText}
 
 ## Readiness Rules
-- NOT ready if status is "open" or "in-progress" (must be "patched" or "applied")
-- NOT ready if there is no commit SHA in patch_notes, commit field, or deploy_notes
+- NOT ready if status is "open", "in-progress", "resolved", or "verified" (must be "patched" or "applied")
 - NOT ready if patch_notes is empty and deploy_notes is absent
-- READY if status is "patched"/"applied" AND a commit reference is present
+- A commit reference ONLY counts if an explicit "commit" field contains a 7+ character hex SHA
+- Do NOT treat applied_by, assigned_to, names, timestamps, patch_notes, deploy_notes text, or other fields as commit evidence
+- READY if status is "patched"/"applied" AND a valid commit reference is present
 
 ## Response format (JSON only, no other text)
 {
@@ -884,6 +885,8 @@ ${afterLogs.slice(0, 8000)}
 - Only flag ERROR or FATAL lines as problems
 - WARN lines are informational unless they increased significantly
 - New INFO lines are not problems
+- Latency differences under 10% or 50ms are noise; classify them as unchanged
+- Increased tool count (for example 79 -> 81) is an improvement because more tools are registered, not a degradation
 
 ## Response format (JSON only, no other text)
 {
