@@ -32,7 +32,7 @@ export const tools: Tool[] = [
   },
   {
     name: "deploy",
-    description: "Deploy a service via MANTIS runner. Refuses if service is in critical state. Owner-only — agent callers will receive 403. Use run_wrapper with the appropriate deploy script instead.",
+    description: "Deploy a service via MANTIS runner. Refuses if service is in critical state.",
     inputSchema: {
       type: "object",
       properties: {
@@ -44,7 +44,7 @@ export const tools: Tool[] = [
   },
   {
     name: "rollback",
-    description: "Rollback a service to the previous deployment via MANTIS runner. Owner-only — agent callers will receive 403. Use run_wrapper with the appropriate deploy script instead.",
+    description: "Rollback a service to the previous deployment via MANTIS runner.",
     inputSchema: {
       type: "object",
       properties: {
@@ -70,14 +70,38 @@ async function getIncomingCommits(repoPath: string): Promise<string[] | null> {
   }
 }
 
+// PM2 process names per service — services with multiple surfaces list all of them
+const SERVICE_SURFACES: Record<string, string[]> = {
+  minimart: ["minimart", "minimart_express", "minimart_electronics"],
+};
+
+async function getSurfaceStatuses(service: string): Promise<Record<string, string>> {
+  const surfaces = SERVICE_SURFACES[service] ?? [service];
+  const statuses: Record<string, string> = {};
+  try {
+    const { stdout } = await execFileAsync("pm2", ["jlist"], { timeout: 10000 });
+    const list = JSON.parse(stdout) as Array<{ name: string; pm2_env?: { status?: string } }>;
+    for (const surface of surfaces) {
+      const proc = list.find((p) => p.name === surface);
+      statuses[surface] = proc?.pm2_env?.status ?? "not_found";
+    }
+  } catch {
+    for (const surface of surfaces) {
+      statuses[surface] = "unknown";
+    }
+  }
+  return statuses;
+}
+
 async function deployStatus(args: Record<string, unknown>): Promise<CallToolResult> {
   const err = validateService(args.service);
   if (err) return err;
   const service = args.service as string;
   try {
-    const [state, incoming] = await Promise.all([
+    const [state, incoming, surfaces] = await Promise.all([
       mantisQuery<MantisServiceState | null>("services.byName", { service }),
       getIncomingCommits(SERVICE_REPOS[service]),
+      getSurfaceStatuses(service),
     ]);
     if (!state) {
       return { content: [{ type: "text", text: `MANTIS has no health record for "${service}" — watchdog may not be tracking it yet.` }], isError: true };
@@ -86,6 +110,7 @@ async function deployStatus(args: Record<string, unknown>): Promise<CallToolResu
       service: state.service,
       state: state.state,
       pm2Status: state.pm2Status,
+      surfaces_restarted: surfaces,
       commitsBehind: state.commitsBehind,
       lastCheck: state.lastCheck,
       incomingCommits: incoming,
