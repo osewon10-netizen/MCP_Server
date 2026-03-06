@@ -204,6 +204,29 @@ export const tools: Tool[] = [
         new_status: { type: "string", enum: ["patched"] },
         outcome: { type: "string", enum: ["fixed", "mitigated", "false_positive", "wont_fix", "needs_followup"] },
         patch_notes: { type: "string", description: "Optional patch notes to set on transition" },
+        deploy_notes: {
+          type: "object",
+          description: "Structured handoff for mini: what to deploy, restart, and verify",
+          properties: {
+            commit: { type: "string" },
+            services_to_restart: { type: "array", items: { type: "string" } },
+            verify_checklist: { type: "array", items: { type: "string" } },
+            env_changes: { type: "string" },
+            ollama_evals: {
+              type: "array",
+              items: {
+                type: "object",
+                properties: {
+                  tool: { type: "string" },
+                  rating: { type: "string", enum: ["good", "partial", "bad"] },
+                  note: { type: "string" },
+                },
+                required: ["tool", "rating"],
+              },
+            },
+          },
+          required: ["commit", "services_to_restart", "verify_checklist"],
+        },
       },
       required: ["id", "new_status"],
     },
@@ -522,6 +545,7 @@ async function updateTicketStatus(args: Record<string, unknown>): Promise<CallTo
   const newStatus = args.new_status as string;
   const outcome = args.outcome as TicketEntry["outcome"] | undefined;
   const patchNotes = args.patch_notes as string | undefined;
+  const deployNotes = args.deploy_notes as TicketEntry["deploy_notes"] | undefined;
 
   if (newStatus === "resolved") {
     return {
@@ -558,6 +582,7 @@ async function updateTicketStatus(args: Record<string, unknown>): Promise<CallTo
 
   if (newStatus === "patched") {
     if (patchNotes) entry.patch_notes = patchNotes;
+    if (deployNotes) entry.deploy_notes = deployNotes;
     entry.status = "patched";
     entry.outcome = outcome ?? entry.outcome;
     if (entry.assigned_to !== "mini") {

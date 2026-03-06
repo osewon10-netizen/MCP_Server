@@ -156,6 +156,29 @@ export const tools: Tool[] = [
         commit: { type: "string", description: "Commit hash if applicable" },
         pushed: { type: "boolean" },
         verified_by: { type: "string" },
+        deploy_notes: {
+          type: "object",
+          description: "Structured handoff for mini: what to deploy, restart, and verify",
+          properties: {
+            commit: { type: "string" },
+            services_to_restart: { type: "array", items: { type: "string" } },
+            verify_checklist: { type: "array", items: { type: "string" } },
+            env_changes: { type: "string" },
+            ollama_evals: {
+              type: "array",
+              items: {
+                type: "object",
+                properties: {
+                  tool: { type: "string" },
+                  rating: { type: "string", enum: ["good", "partial", "bad"] },
+                  note: { type: "string" },
+                },
+                required: ["tool", "rating"],
+              },
+            },
+          },
+          required: ["commit", "services_to_restart", "verify_checklist"],
+        },
       },
       required: ["id", "new_status"],
     },
@@ -463,6 +486,7 @@ async function updatePatchStatus(args: Record<string, unknown>): Promise<CallToo
   const commit = args.commit as string | undefined;
   const pushed = args.pushed as boolean | undefined;
   const verifiedBy = args.verified_by as string | undefined;
+  const deployNotes = args.deploy_notes as PatchEntry["deploy_notes"] | undefined;
 
   const index = await readIndex<PatchIndex>(PATCH_INDEX);
   const entry = index.patches[id];
@@ -496,6 +520,7 @@ async function updatePatchStatus(args: Record<string, unknown>): Promise<CallToo
     entry.applied_by = appliedBy;
     entry.commit = commit;
     entry.pushed = pushed;
+    if (deployNotes) entry.deploy_notes = deployNotes;
     if (entry.assigned_to !== "mini") {
       entry.assigned_to = "mini";
       entry.claimed_by = undefined;

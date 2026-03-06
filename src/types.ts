@@ -40,6 +40,7 @@ export interface TicketEntry {
   evidence?: string;
   evidence_refs?: string[];
   patch_notes?: string;
+  deploy_notes?: DeployNotes;
 
   // Structured verification
   verification?: VerificationRecord;
@@ -86,6 +87,7 @@ export interface PatchEntry {
   // Lifecycle content
   proposed_diff?: string;
   applied_notes?: string;
+  deploy_notes?: DeployNotes;
 
   // Structured verification
   verification?: VerificationRecord;
@@ -248,6 +250,20 @@ export interface IpEntry {
 export interface IpIndex {
   next_id: Record<string, number>;
   plans: Record<string, IpEntry>;
+}
+
+// === Deploy Notes (TK/PA structured handoff for mini) ===
+
+export interface DeployNotes {
+  commit: string;
+  services_to_restart: string[];
+  verify_checklist: string[];
+  env_changes?: string;
+  ollama_evals?: Array<{
+    tool: string;
+    rating: "good" | "partial" | "bad";
+    note?: string;
+  }>;
 }
 
 // === Tag System ===
