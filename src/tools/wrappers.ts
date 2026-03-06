@@ -136,7 +136,7 @@ async function runWrapper(args: Record<string, unknown>): Promise<CallToolResult
         cwd: WRAPPERS_DIR,
         env: {
           ...process.env,
-          PATH: `${process.env.HOME}/.bun/bin:${process.env.PATH}`,
+          PATH: `/Users/minmac.serv/.bun/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:${process.env.PATH ?? ""}`,
         },
       }
     );
