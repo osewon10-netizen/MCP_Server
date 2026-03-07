@@ -66,7 +66,7 @@ export const MINIMART_ALLOWED_TOOLS = [
   // Memory (4)
   "get_context",
   "set_context",
-  "get_ticketing_guide",
+  "get_branch_guide",
   "get_project_info",
 
   // Git (3)

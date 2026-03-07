@@ -103,7 +103,7 @@ async function getDocs(args: Record<string, unknown>): Promise<CallToolResult> {
 const toolDefs: Tool[] = [
   {
     name: "ctx7_resolve_library",
-    description: "Resolve a library/framework name to a Context7-compatible library ID. Use this before ctx7_get_docs.",
+    description: "Resolve a library/framework name to a Context7-compatible library ID. Use before ctx7_get_docs. Compress the returned docs through ollama_summarize_source with a specific question to avoid loading raw output into context.",
     inputSchema: {
       type: "object",
       properties: {
@@ -114,7 +114,7 @@ const toolDefs: Tool[] = [
   },
   {
     name: "ctx7_get_docs",
-    description: "Fetch up-to-date documentation for a library by Context7 ID and optional topic. Returns version-specific docs.",
+    description: "Fetch up-to-date documentation for a library by Context7 ID and optional topic. Returns version-specific docs. Pipe results through ollama_summarize_source with a focused question — do not load raw docs into context.",
     inputSchema: {
       type: "object",
       properties: {

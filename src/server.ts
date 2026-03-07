@@ -7,6 +7,7 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 
 import { PluginRegistry } from "./core/registry.js";
+import type { SurfaceName } from "./core/types.js";
 
 // Native plugins (all 25 modules)
 import tagsPlugin from "./plugins/info/tags.js";
@@ -34,6 +35,7 @@ import ocPlugin from "./plugins/oc/oc.js";
 import taskConfigPlugin from "./plugins/oc/task-config.js";
 import plansPlugin from "./plugins/plans/plans.js";
 import plansOpsPlugin from "./plugins/plans/plans-ops.js";
+import guidePlugin from "./plugins/guide/guide.js";
 
 // --- Plugin Registry ---
 
@@ -51,6 +53,7 @@ const ALL_PLUGINS = [
   trainingPlugin,                                   // review
   ocPlugin, taskConfigPlugin,                       // oc
   plansPlugin, plansOpsPlugin,                      // plans
+  guidePlugin,                                      // guide
 ];
 for (const plugin of ALL_PLUGINS) {
   pluginRegistry.register(plugin);
@@ -168,7 +171,7 @@ async function dispatchTool(
   }
 
   // Single-path dispatch: all tools are in the plugin registry
-  const registryResult = await pluginRegistry.dispatch(name, args);
+  const registryResult = await pluginRegistry.dispatch(name, args, surfaceName as SurfaceName);
   if (registryResult !== undefined) return registryResult;
 
   return {

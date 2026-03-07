@@ -2,7 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import type { Tool, CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import type { Plugin, SurfaceName } from "../../core/types.js";
-import { MEMORY_DIR, SERVICE_REPOS, TICKETING_DEV_PATH, TICKETING_MINI_PATH } from "../../shared/paths.js";
+import { MEMORY_DIR, SERVICE_REPOS } from "../../shared/paths.js";
 
 const toolDefs: Tool[] = [
   {
@@ -29,21 +29,7 @@ const toolDefs: Tool[] = [
       required: ["topic", "content", "author"],
     },
   },
-  {
-    name: "get_ticketing_guide",
-    description: "Load the ticketing workflow reference for this agent's role. Call at session start to learn lifecycle, status transitions, assigned_to conventions, and tiering rules. Use role=\"dev\" for the dev rig ticketing guide (TICKETING_DEV.md), role=\"mini\" for the server-side agent guide (TICKETING_MINI.md).",
-    inputSchema: {
-      type: "object",
-      properties: {
-        role: {
-          type: "string",
-          enum: ["dev", "mini"],
-          description: "Agent role — dev for dev rig agents, mini for server-side agents",
-        },
-      },
-      required: ["role"],
-    },
-  },
+
   {
     name: "get_project_info",
     description: "Get service info: AGENTS.md content (first 50 lines), repo path, checklist.",
@@ -104,20 +90,6 @@ async function setContext(args: Record<string, unknown>): Promise<CallToolResult
   return { content: [{ type: "text", text: JSON.stringify({ updated: true, file: filePath }) }] };
 }
 
-async function getTicketingGuide(args: Record<string, unknown>): Promise<CallToolResult> {
-  const role = args.role as "dev" | "mini";
-  const filePath = role === "dev" ? TICKETING_DEV_PATH : TICKETING_MINI_PATH;
-  try {
-    const content = await fs.readFile(filePath, "utf-8");
-    return { content: [{ type: "text", text: content }] };
-  } catch {
-    return {
-      content: [{ type: "text", text: `Ticketing guide not found at ${filePath}` }],
-      isError: true,
-    };
-  }
-}
-
 async function getProjectInfo(args: Record<string, unknown>): Promise<CallToolResult> {
   const service = args.service as string;
   const repoPath = SERVICE_REPOS[service];
@@ -147,7 +119,6 @@ async function handleCall(name: string, args: Record<string, unknown>): Promise<
   switch (name) {
     case "get_context": return getContext(args);
     case "set_context": return setContext(args);
-    case "get_ticketing_guide": return getTicketingGuide(args);
     case "get_project_info": return getProjectInfo(args);
     default:
       return { content: [{ type: "text", text: `Unknown tool: ${name}` }], isError: true };
@@ -157,7 +128,6 @@ async function handleCall(name: string, args: Record<string, unknown>): Promise<
 const SURFACE_MAP: Record<string, readonly SurfaceName[]> = {
   get_context: ["minimart"],
   set_context: ["minimart"],
-  get_ticketing_guide: ["minimart", "minimart_express", "minimart_electronics"],
   get_project_info: ["minimart", "minimart_electronics"],
 };
 

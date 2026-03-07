@@ -214,7 +214,7 @@ async function ghCreateIssue(args: Record<string, unknown>): Promise<CallToolRes
 const toolDefs: Tool[] = [
   {
     name: "gh_get_file",
-    description: "Read a file (or list a directory) from a GitHub repo. Returns decoded content, capped at 50KB.",
+    description: "Read a file (or list a directory) from a GitHub repo. Returns decoded content, capped at 50KB. For large files, compress through ollama_summarize_source with a specific question before loading into context.",
     inputSchema: {
       type: "object",
       properties: {
@@ -244,7 +244,7 @@ const toolDefs: Tool[] = [
   },
   {
     name: "gh_get_pr_diff",
-    description: "Get the diff of a pull request. Returns unified diff text, capped at 50KB.",
+    description: "Get the diff of a pull request. Returns unified diff text, capped at 50KB. For summaries, pipe through ollama_summarize_source with a focused question.",
     inputSchema: {
       type: "object",
       properties: {

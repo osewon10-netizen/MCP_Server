@@ -135,7 +135,7 @@ const toolDefs: Tool[] = [
   },
   {
     name: "ollama_digest_service",
-    description: "One-call service health briefing. Reads PM2 status, open tickets/patches, and optionally logs, then returns a 15-25 line natural-language briefing via local Ollama. Replaces 4-5 tool calls. Cached 5 min.",
+    description: "One-call service health briefing. Reads PM2 status, open tickets/patches, and optionally logs, then returns a 15-25 line briefing via local Ollama. Use at session start for orientation. Ollama reads mini's committed state — not your local edits. Replaces 4-5 tool calls. Cached 5 min.",
     inputSchema: {
       type: "object",
       properties: {
@@ -151,7 +151,7 @@ const toolDefs: Tool[] = [
   },
   {
     name: "ollama_summarize_diff",
-    description: "Summarize a git diff for a service repo using natural language. Runs git diff, sends it to Ollama with an optional query (e.g. 'what changed in the force_complete logic'), returns a focused 1-2KB summary. Default ref: HEAD~1. Cap 50KB diff input. Cached 5 min.",
+    description: "Summarize a git diff for a service repo using natural language. Ollama reads mini's git clone (committed state only). Returns focused 1-2KB summary. Use instead of git_diff when you only need a summary, not raw diff. Default ref: HEAD~1. Cap 50KB. Cached 5 min.",
     inputSchema: {
       type: "object",
       properties: {
@@ -208,7 +208,7 @@ const toolDefs: Tool[] = [
   },
   {
     name: "ollama_summarize_source",
-    description: "Query a source file from a service repo using natural language. Reads the file, sends it to Ollama with your question, returns a focused answer (~2KB). Use instead of read_source_file when you need to understand specific logic rather than see raw code. Cap 50KB input. Cached 5 min.",
+    description: "Query a source file from a service repo using natural language. Use this before read_source_file — costs fewer frontier tokens. Ollama reads mini's git clone (committed state only; cannot see local edits). Returns focused ~2KB answer. Cap 50KB input. Cached 5 min.",
     inputSchema: {
       type: "object",
       properties: {

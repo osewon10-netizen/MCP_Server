@@ -76,7 +76,7 @@ const plugin: Plugin = {
     {
       definition: {
         name: "service_registry",
-        description: "Return service metadata from the registry. Pass service name to get a single entry, or omit for all.",
+        description: "Return service metadata from the registry. MiniMart: full ops authority. Electronics: dev rig agent — implement, push, mark patched, stop there. Express: ollama worker lane. Pass service name for a single entry, or omit for all.",
         inputSchema: {
           type: "object",
           properties: {

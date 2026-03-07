@@ -28,7 +28,7 @@ export const ELECTRONICS_ALLOWED_TOOLS = [
 
   // Context + guides (4)
   "get_project_info",
-  "get_ticketing_guide",
+  "get_branch_guide",
   "get_checklist",
   "service_registry",
 

@@ -9,7 +9,7 @@ const execFileAsync = promisify(execFile);
 const toolDefs: Tool[] = [
   {
     name: "git_log",
-    description: "Show recent git commit log for a service repo.",
+    description: "Show recent git commit log for a service repo. Dev rig job ends at push — verification is mini's responsibility.",
     inputSchema: {
       type: "object",
       properties: {
@@ -21,7 +21,7 @@ const toolDefs: Tool[] = [
   },
   {
     name: "git_diff",
-    description: "Show git diff for a service repo against a ref (default HEAD~1).",
+    description: "Show git diff for a service repo against a ref (default HEAD~1). Use ollama_summarize_diff instead if you only need a natural-language summary — cheaper than loading raw diff into context.",
     inputSchema: {
       type: "object",
       properties: {

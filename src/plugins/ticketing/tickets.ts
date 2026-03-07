@@ -197,7 +197,7 @@ const toolDefs: Tool[] = [
   },
   {
     name: "update_ticket_status",
-    description: "Advance a ticket's status. Transitions: open/in-progress → patched. Automatically hands patched tickets to mini for verification.",
+    description: "Advance a ticket's status. Electronics scope: open→in-progress, in-progress→patched only. Call after push — do NOT deploy, verify, or archive. Mini handles those after receiving the patched handoff.",
     inputSchema: {
       type: "object",
       properties: {

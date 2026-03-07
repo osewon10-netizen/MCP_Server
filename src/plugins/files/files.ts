@@ -57,7 +57,7 @@ const toolDefs: Tool[] = [
   },
   {
     name: "read_source_file",
-    description: "Read a source file from a service repo (read-only). Path must be relative to the service repo root. Max 50KB. Rejects binary files and paths outside the service repo. Supports offset (1-based line start) and limit (max lines) for partial reads.",
+    description: "Read a source file from a service repo (read-only). Use ollama_summarize_source first when you only need to understand logic — only call this when you need raw code or specific line ranges. Max 50KB. Supports offset/limit for partial reads.",
     inputSchema: {
       type: "object",
       properties: {

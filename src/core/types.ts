@@ -6,7 +6,7 @@ export type SurfaceName = "minimart" | "minimart_express" | "minimart_electronic
 /** A tool with its handler and surface placement baked in. */
 export interface PluginTool {
   definition: Tool;
-  handler: (args: Record<string, unknown>) => Promise<CallToolResult>;
+  handler: (args: Record<string, unknown>, surface?: SurfaceName) => Promise<CallToolResult>;
   surfaces: readonly SurfaceName[];
 }
 

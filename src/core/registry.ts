@@ -49,10 +49,11 @@ export class PluginRegistry {
   async dispatch(
     name: string,
     args: Record<string, unknown>,
+    surface?: SurfaceName,
   ): Promise<CallToolResult | undefined> {
     const pt = this.toolIndex.get(name);
     if (!pt) return undefined;
-    return pt.handler(args);
+    return pt.handler(args, surface);
   }
 
   /** Check if a tool exists in the registry. */
