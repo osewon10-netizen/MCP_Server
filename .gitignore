@@ -15,3 +15,10 @@ build/
 /*Response.json
 /*Request.json
 /*Notification.json
+
+# Local dev/test scripts
+mcp.mjs
+mcp_client.mjs
+current_ticket.json
+ticket.json
+.mcp.json
