@@ -179,13 +179,13 @@ export function validateAssignedTo(
   if (parts.length < 3) {
     return {
       valid: false,
-      error: `Invalid assigned_to "${trimmed}". Expected format: dev.<service>.<modelIdentity> or mini[.<service>.<modelIdentity>].`,
+      error: `Invalid assigned_to "${trimmed}". Canonical formats: "mini", "dev.<service>" (e.g. dev.minimart), or "dev.<service>.<model>" (e.g. dev.minimart.claude.sonnet.4.6.std).`,
     };
   }
 
   const side = parts[0];
   if (side !== "dev" && side !== "mini") {
-    return { valid: false, error: `Invalid assigned_to "${trimmed}". Side must be "dev" or "mini".` };
+    return { valid: false, error: `Invalid assigned_to "${trimmed}". Side must be "dev" or "mini" (e.g. dev.minimart, mini).` };
   }
 
   const service = parts[1];
