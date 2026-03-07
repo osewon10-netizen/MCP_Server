@@ -1,8 +1,9 @@
 import type { Tool, CallToolResult } from "@modelcontextprotocol/sdk/types.js";
+import type { Plugin } from "../../core/types.js";
 import fs from "node:fs/promises";
-import { readIndex, writeIndex } from "../shared/index-manager.js";
-import { PLANS_INDEX, PLANS_ARCHIVE, PLANS_DIR } from "../shared/paths.js";
-import type { IpIndex, IpVerification } from "../types.js";
+import { readIndex, writeIndex } from "../../shared/index-manager.js";
+import { PLANS_INDEX, PLANS_ARCHIVE, PLANS_DIR } from "../../shared/paths.js";
+import type { IpIndex, IpVerification } from "../../types.js";
 
 function textResult(data: unknown): CallToolResult {
   return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
@@ -97,7 +98,7 @@ async function verifyPlan(args: Record<string, unknown>): Promise<CallToolResult
   });
 }
 
-export const tools: Tool[] = [
+const toolDefs: Tool[] = [
   {
     name: "verify_plan",
     description: "Mini verifies a reviewed IP — runs checklist, records outcome, archives IP + all phases.",
@@ -137,10 +138,22 @@ export const tools: Tool[] = [
   },
 ];
 
-export async function handleCall(name: string, args: Record<string, unknown>): Promise<CallToolResult> {
+async function handleCall(name: string, args: Record<string, unknown>): Promise<CallToolResult> {
   switch (name) {
     case "verify_plan": return verifyPlan(args);
     default:
       return errorResult(`Unknown tool: ${name}`);
   }
 }
+
+const plugin: Plugin = {
+  name: "plans-ops",
+  domain: "plans",
+  tools: toolDefs.map((def) => ({
+    definition: def,
+    handler: (args) => handleCall(def.name, args),
+    surfaces: ["minimart"] as const,
+  })),
+};
+
+export default plugin;

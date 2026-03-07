@@ -1,10 +1,11 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import type { Tool, CallToolResult } from "@modelcontextprotocol/sdk/types.js";
-import { PROMPTS_DIR } from "../shared/paths.js";
-import { TASK_REGISTRY, VALID_TASK_TYPES } from "../shared/task-registry.js";
+import type { Plugin } from "../../core/types.js";
+import { PROMPTS_DIR } from "../../shared/paths.js";
+import { TASK_REGISTRY, VALID_TASK_TYPES } from "../../shared/task-registry.js";
 
-export const tools: Tool[] = [
+const toolDefs: Tool[] = [
   {
     name: "get_task_config",
     description:
@@ -65,7 +66,7 @@ async function getTaskConfig(args: Record<string, unknown>): Promise<CallToolRes
   };
 }
 
-export async function handleCall(
+async function handleCall(
   name: string,
   args: Record<string, unknown>
 ): Promise<CallToolResult> {
@@ -75,3 +76,15 @@ export async function handleCall(
       return { content: [{ type: "text", text: `Unknown tool: ${name}` }], isError: true };
   }
 }
+
+const plugin: Plugin = {
+  name: "oc-task-config",
+  domain: "oc",
+  tools: toolDefs.map((def) => ({
+    definition: def,
+    handler: (args) => handleCall(def.name, args),
+    surfaces: ["minimart", "minimart_express"] as const,
+  })),
+};
+
+export default plugin;

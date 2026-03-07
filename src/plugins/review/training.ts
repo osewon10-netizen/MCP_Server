@@ -1,8 +1,9 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import type { Tool, CallToolResult } from "@modelcontextprotocol/sdk/types.js";
-import { TICKET_ARCHIVE, PATCH_ARCHIVE, OLLAMA_WORKSPACE } from "../shared/paths.js";
-import type { TicketEntry, PatchEntry } from "../types.js";
+import type { Plugin } from "../../core/types.js";
+import { TICKET_ARCHIVE, PATCH_ARCHIVE, OLLAMA_WORKSPACE } from "../../shared/paths.js";
+import type { TicketEntry, PatchEntry } from "../../types.js";
 
 const OLLAMA_METRICS_DIR = path.join(OLLAMA_WORKSPACE, "metrics");
 
@@ -59,7 +60,7 @@ interface TrainingRecord {
 
 // ─── Tool Definition ─────────────────────────────────────────────────
 
-export const tools: Tool[] = [
+const toolDefs: Tool[] = [
   {
     name: "export_training_data",
     description:
@@ -339,10 +340,22 @@ async function exportTrainingData(args: Record<string, unknown>): Promise<CallTo
 
 // ─── Dispatch ────────────────────────────────────────────────────────
 
-export async function handleCall(name: string, args: Record<string, unknown>): Promise<CallToolResult> {
+async function handleCall(name: string, args: Record<string, unknown>): Promise<CallToolResult> {
   switch (name) {
     case "export_training_data": return exportTrainingData(args);
     default:
       return { content: [{ type: "text", text: `Unknown tool: ${name}` }], isError: true };
   }
 }
+
+const plugin: Plugin = {
+  name: "review-training",
+  domain: "review",
+  tools: toolDefs.map((def) => ({
+    definition: def,
+    handler: (args) => handleCall(def.name, args),
+    surfaces: ["minimart", "minimart_express"] as const,
+  })),
+};
+
+export default plugin;

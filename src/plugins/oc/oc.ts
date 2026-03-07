@@ -1,15 +1,16 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import type { Tool, CallToolResult } from "@modelcontextprotocol/sdk/types.js";
+import type { Plugin } from "../../core/types.js";
 import type {
   OcGateDecision,
   OcIndex,
   OcStructuredResult,
   OcTaskEntry,
-} from "../types.js";
-import { OC_ARCHIVE_DIR, OC_INDEX, OC_QUEUE, OC_TRACE_LOG, OLLAMA_WORKSPACE } from "../shared/paths.js";
-import { readIndex, writeIndex, allocateOcId } from "../shared/index-manager.js";
-import { VALID_TASK_TYPES } from "../shared/task-registry.js";
+} from "../../types.js";
+import { OC_ARCHIVE_DIR, OC_INDEX, OC_QUEUE, OC_TRACE_LOG, OLLAMA_WORKSPACE } from "../../shared/paths.js";
+import { readIndex, writeIndex, allocateOcId } from "../../shared/index-manager.js";
+import { VALID_TASK_TYPES } from "../../shared/task-registry.js";
 
 const VALID_IMPACTS = ["low", "medium", "high", "critical"] as const;
 const VALID_TICKET_TYPES = ["ticket", "patch", "none"] as const;
@@ -578,7 +579,7 @@ function buildEscalationPackets(
   return packets;
 }
 
-export const tools: Tool[] = [
+const toolDefs: Tool[] = [
   {
     name: "create_oc_task",
     description: "Create a new OC (Ollama Churns) task. Returns the allocated ID and entry.",
@@ -1224,7 +1225,7 @@ async function listOcArchive(args: Record<string, unknown>): Promise<CallToolRes
   };
 }
 
-export async function handleCall(name: string, args: Record<string, unknown>): Promise<CallToolResult> {
+async function handleCall(name: string, args: Record<string, unknown>): Promise<CallToolResult> {
   switch (name) {
     case "create_oc_task": return createOcTask(args);
     case "list_oc_tasks": return listOcTasks(args);
@@ -1236,3 +1237,15 @@ export async function handleCall(name: string, args: Record<string, unknown>): P
       return { content: [{ type: "text", text: `Unknown tool: ${name}` }], isError: true };
   }
 }
+
+const plugin: Plugin = {
+  name: "oc",
+  domain: "oc",
+  tools: toolDefs.map((def) => ({
+    definition: def,
+    handler: (args) => handleCall(def.name, args),
+    surfaces: ["minimart", "minimart_express"] as const,
+  })),
+};
+
+export default plugin;

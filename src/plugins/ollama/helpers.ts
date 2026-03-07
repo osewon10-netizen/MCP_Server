@@ -8,8 +8,8 @@ import { ollamaGenerate } from "../../shared/ollama-client.js";
 import { SERVICE_REPOS, METRICS_DIR, OLLAMA_EVALS_PATH, PROMPTS_DIR } from "../../shared/paths.js";
 import { handleCall as logsHandleCall } from "../ops/logs.js";
 import { handleCall as healthHandleCall } from "../ops/health.js";
-import { handleCall as ticketsHandleCall } from "../../tools/tickets.js";
-import { handleCall as patchesHandleCall } from "../../tools/patches.js";
+import { handleCall as ticketsHandleCall } from "../ticketing/tickets.js";
+import { handleCall as patchesHandleCall } from "../ticketing/patches.js";
 
 const execFileAsync = promisify(execFile);
 

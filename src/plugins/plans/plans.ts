@@ -1,8 +1,9 @@
 import type { Tool, CallToolResult } from "@modelcontextprotocol/sdk/types.js";
+import type { Plugin, SurfaceName } from "../../core/types.js";
 import fs from "node:fs/promises";
-import { readIndex, writeIndex } from "../shared/index-manager.js";
-import { PLANS_INDEX, PLANS_DIR } from "../shared/paths.js";
-import type { IpIndex, IpEntry, PhEntry, IpHandoff, IpReview } from "../types.js";
+import { readIndex, writeIndex } from "../../shared/index-manager.js";
+import { PLANS_INDEX, PLANS_DIR } from "../../shared/paths.js";
+import type { IpIndex, IpEntry, PhEntry, IpHandoff, IpReview } from "../../types.js";
 
 async function ensureIndex(): Promise<IpIndex> {
   try {
@@ -368,7 +369,7 @@ async function reviewPlan(args: Record<string, unknown>): Promise<CallToolResult
 
 // ─── Tool Definitions ───────────────────────────────────────────────
 
-export const tools: Tool[] = [
+const toolDefs: Tool[] = [
   {
     name: "create_plan",
     description: "Create an Implementation Plan (IP) with phases. Allocates IP_{service}_{NNN} ID.",
@@ -503,7 +504,7 @@ export const tools: Tool[] = [
   },
 ];
 
-export async function handleCall(name: string, args: Record<string, unknown>): Promise<CallToolResult> {
+async function handleCall(name: string, args: Record<string, unknown>): Promise<CallToolResult> {
   switch (name) {
     case "create_plan": return createPlan(args);
     case "list_plans": return listPlans(args);
@@ -516,3 +517,30 @@ export async function handleCall(name: string, args: Record<string, unknown>): P
       return errorResult(`Unknown tool: ${name}`);
   }
 }
+
+const MM: readonly SurfaceName[] = ["minimart"];
+const EL: readonly SurfaceName[] = ["minimart_electronics"];
+const MM_EL: readonly SurfaceName[] = ["minimart", "minimart_electronics"];
+const ALL: readonly SurfaceName[] = ["minimart", "minimart_express", "minimart_electronics"];
+
+const SURFACE_MAP: Record<string, readonly SurfaceName[]> = {
+  create_plan: EL,
+  list_plans: ALL,
+  view_plan: ALL,
+  claim_plan: EL,
+  update_phase: EL,
+  complete_plan: EL,
+  review_plan: MM_EL,
+};
+
+const plugin: Plugin = {
+  name: "plans",
+  domain: "plans",
+  tools: toolDefs.map((def) => ({
+    definition: def,
+    handler: (args) => handleCall(def.name, args),
+    surfaces: SURFACE_MAP[def.name] ?? [],
+  })),
+};
+
+export default plugin;

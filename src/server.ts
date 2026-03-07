@@ -7,19 +7,8 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 
 import { PluginRegistry } from "./core/registry.js";
-import { wrapLegacyModule } from "./core/compat.js";
-import type { LegacyToolModule } from "./core/types.js";
 
-import * as ticketMod from "./tools/tickets.js";
-import * as patchMod from "./tools/patches.js";
-// Legacy modules (still in src/tools/ — phases 10-12 will extract these)
-import * as trainingMod from "./tools/training.js";
-import * as ocMod from "./tools/oc.js";
-import * as taskConfigMod from "./tools/task-config.js";
-import * as plansMod from "./tools/plans.js";
-import * as plansOpsMod from "./tools/plans-ops.js";
-
-// Native plugins (extracted in phases 03-06)
+// Native plugins (all 25 modules)
 import tagsPlugin from "./plugins/info/tags.js";
 import registryPlugin from "./plugins/info/registry.js";
 import networkPlugin from "./plugins/info/network.js";
@@ -38,56 +27,33 @@ import cronPlugin from "./plugins/ops/cron.js";
 import ollamaCorePlugin from "./plugins/ollama/core.js";
 import ollamaHelpersPlugin from "./plugins/ollama/helpers.js";
 import mantisPlugin from "./plugins/mantis/mantis.js";
+import ticketsPlugin from "./plugins/ticketing/tickets.js";
+import patchesPlugin from "./plugins/ticketing/patches.js";
+import trainingPlugin from "./plugins/review/training.js";
+import ocPlugin from "./plugins/oc/oc.js";
+import taskConfigPlugin from "./plugins/oc/task-config.js";
+import plansPlugin from "./plugins/plans/plans.js";
+import plansOpsPlugin from "./plugins/plans/plans-ops.js";
 
-type ToolHandler = (name: string, args: Record<string, unknown>) => Promise<CallToolResult>;
-
-interface ToolModule {
-  tools: Tool[];
-  handleCall: ToolHandler;
-}
-
-const toolModules: ToolModule[] = [
-  ticketMod,
-  patchMod,
-  trainingMod,
-  ocMod,
-  taskConfigMod,
-  plansMod,
-  plansOpsMod,
-];
-
-// --- Plugin Registry (dual-path: mirrors old toolModules via compat bridge) ---
-
-// Legacy modules still using compat bridge (phases 10-12 will convert these)
-const LEGACY_MODULE_MAP: [LegacyToolModule, string, string][] = [
-  [ticketMod, "ticketing-tickets", "ticketing"],
-  [patchMod, "ticketing-patches", "ticketing"],
-  [trainingMod, "review-training", "review"],
-  [ocMod, "oc", "oc"],
-  [taskConfigMod, "oc-task-config", "oc"],
-  [plansMod, "plans", "plans"],
-  [plansOpsMod, "plans-ops", "plans"],
-];
+// --- Plugin Registry ---
 
 const pluginRegistry = new PluginRegistry();
 
-// Register native plugins (phases 03-09)
-const NATIVE_PLUGINS = [
-  tagsPlugin, registryPlugin, networkPlugin,       // phase 03
-  memoryPlugin, reviewPlugin, wrappersPlugin, overviewPlugin,  // phase 04
-  context7Plugin, githubPlugin,                     // phase 05
-  gitPlugin, filesPlugin, logsPlugin,               // phase 06
-  healthPlugin, deployPlugin, cronPlugin,           // phase 07
-  ollamaCorePlugin, ollamaHelpersPlugin,            // phase 08
-  mantisPlugin,                                     // phase 09
+const ALL_PLUGINS = [
+  tagsPlugin, registryPlugin, networkPlugin,       // info
+  memoryPlugin, reviewPlugin, wrappersPlugin, overviewPlugin,
+  context7Plugin, githubPlugin,                     // external
+  gitPlugin, filesPlugin, logsPlugin,               // git/files/ops
+  healthPlugin, deployPlugin, cronPlugin,           // ops
+  ollamaCorePlugin, ollamaHelpersPlugin,            // ollama
+  mantisPlugin,                                     // mantis
+  ticketsPlugin, patchesPlugin,                     // ticketing
+  trainingPlugin,                                   // review
+  ocPlugin, taskConfigPlugin,                       // oc
+  plansPlugin, plansOpsPlugin,                      // plans
 ];
-for (const plugin of NATIVE_PLUGINS) {
+for (const plugin of ALL_PLUGINS) {
   pluginRegistry.register(plugin);
-}
-
-// Register legacy-wrapped modules
-for (const [mod, name, domain] of LEGACY_MODULE_MAP) {
-  pluginRegistry.register(wrapLegacyModule(mod, name, domain));
 }
 
 /**
@@ -156,10 +122,7 @@ function handleGetToolInfo(
 }
 
 export function getRegisteredToolDefinitions(): Tool[] {
-  // Prefer registry (includes all legacy-wrapped tools); fall back to old array
-  const fromRegistry = pluginRegistry.getAllDefinitions();
-  if (fromRegistry.length > 0) return fromRegistry;
-  return toolModules.flatMap((m) => m.tools);
+  return pluginRegistry.getAllDefinitions();
 }
 
 export function getRegisteredToolNames(): string[] {
@@ -204,15 +167,10 @@ async function dispatchTool(
     };
   }
 
-  // Dual-path dispatch: check plugin registry first, fall back to old toolModules
+  // Single-path dispatch: all tools are in the plugin registry
   const registryResult = await pluginRegistry.dispatch(name, args);
   if (registryResult !== undefined) return registryResult;
 
-  for (const mod of toolModules) {
-    if (mod.tools.some((t) => t.name === name)) {
-      return mod.handleCall(name, args);
-    }
-  }
   return {
     content: [{ type: "text", text: `Unknown tool: ${name}` }],
     isError: true,
