@@ -29,6 +29,14 @@ const SOURCE_BINARY_EXTENSIONS = new Set([
   ".mp4", ".mp3", ".wav",
 ]);
 
+// ─── Log Preprocessing ───────────────────────────────────────────────
+// PM2 collapses repeated identical lines into `<line> (xN)`.
+// qwen3-4B Q4_K_M consistently reads (xN) as count 1 — hard model blind spot.
+// Expand to natural language counts before sending to Ollama.
+function expandLogMultipliers(text: string): string {
+  return text.replace(/\(x(\d+)\)/g, (_match, n) => `[repeated ${n} times]`);
+}
+
 // ─── Cache ───────────────────────────────────────────────────────────
 
 interface CacheEntry {
@@ -225,7 +233,7 @@ async function ollamaSummarizeLogs(args: Record<string, unknown>): Promise<CallT
   // 1. Gather logs
   try {
     const logsResult = await logsHandleCall("service_logs", { service, lines });
-    logText = (logsResult.content[0] as { text: string }).text;
+    logText = expandLogMultipliers((logsResult.content[0] as { text: string }).text);
     if (Buffer.byteLength(logText, "utf-8") > MAX_LOG_BYTES) {
       logText = logText.slice(0, MAX_LOG_BYTES) + "\n...(truncated at 100KB)";
     }
@@ -876,10 +884,10 @@ async function ollamaCompareLogs(args: Record<string, unknown>): Promise<CallToo
   const prompt = `You are a deployment verification agent. Compare these two log snapshots for service "${service}" and identify what changed.
 
 ## Before Deploy
-${beforeLogs.slice(0, 8000)}
+${expandLogMultipliers(beforeLogs).slice(0, 8000)}
 
 ## After Deploy
-${afterLogs.slice(0, 8000)}
+${expandLogMultipliers(afterLogs).slice(0, 8000)}
 
 ## Severity Rules
 - Only flag ERROR or FATAL lines as problems
