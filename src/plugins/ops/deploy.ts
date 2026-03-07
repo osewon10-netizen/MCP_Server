@@ -33,7 +33,7 @@ const toolDefs: Tool[] = [
   },
   {
     name: "deploy",
-    description: "Deploy a service via MANTIS runner. Refuses if service is in critical state.",
+    description: "Full pipeline: git pull + build + pm2 restart. Use for code updates. Refuses if service is in critical state.",
     inputSchema: {
       type: "object",
       properties: {

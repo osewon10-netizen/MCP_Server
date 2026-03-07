@@ -8,6 +8,8 @@ export interface PluginTool {
   definition: Tool;
   handler: (args: Record<string, unknown>, surface?: SurfaceName) => Promise<CallToolResult>;
   surfaces: readonly SurfaceName[];
+  /** Per-surface description overrides. Falls back to definition.description if not set. */
+  descriptions?: Partial<Record<SurfaceName, string>>;
 }
 
 /** Transition guard entry: current status → allowed new statuses. */

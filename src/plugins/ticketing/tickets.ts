@@ -134,12 +134,11 @@ const toolDefs: Tool[] = [
   },
   {
     name: "view_ticket",
-    description: "View a ticket by ID. Checks open index first, then archive. Returns structured entry (default) or human-readable text (mode=human).",
+    description: "View a ticket by ID. Checks open index first, then archive. Returns structured entry.",
     inputSchema: {
       type: "object",
       properties: {
         id: { type: "string", description: "Ticket ID, e.g. TK-049" },
-        mode: { type: "string", enum: ["entry", "human"], description: "Output mode (default: entry)" },
       },
       required: ["id"],
     },
@@ -161,7 +160,7 @@ const toolDefs: Tool[] = [
         where_to_look: { type: "array", items: { type: "string" } },
         evidence: { type: "string", description: "Initial investigation findings" },
         evidence_refs: { type: "array", items: { type: "string" }, description: "References to evidence sources" },
-        assigned_to: { type: "string", description: "Team queue (e.g. dev.minimart, mini)" },
+        assigned_to: { type: "string", description: "Team queue. Format: dev.{service} or mini (e.g. dev.minimart, mini)" },
         author: { type: "string" },
       },
       required: ["service", "summary", "severity", "tags", "detected_via", "symptom", "likely_cause", "where_to_look", "author"],
@@ -197,7 +196,7 @@ const toolDefs: Tool[] = [
   },
   {
     name: "update_ticket_status",
-    description: "Advance a ticket's status. Electronics scope: open→in-progress, in-progress→patched only. Call after push — do NOT deploy, verify, or archive. Mini handles those after receiving the patched handoff.",
+    description: "Advance a ticket's status to patched. Call after push.",
     inputSchema: {
       type: "object",
       properties: {
@@ -235,7 +234,7 @@ const toolDefs: Tool[] = [
   {
     name: "archive_ticket",
     description:
-      "Full close workflow: fill verification, archive to JSONL, remove from open index. Ticket must be in 'patched' status.",
+      "Full close workflow: fill verification, archive to JSONL, remove from open index. Ticket must be in 'patched' status. Call after deploy + verification.",
     inputSchema: {
       type: "object",
       properties: {
@@ -264,7 +263,7 @@ const toolDefs: Tool[] = [
       type: "object",
       properties: {
         id: { type: "string", description: "Ticket ID" },
-        assigned_to: { type: "string", description: "Team queue (e.g. dev.minimart, mini)" },
+        assigned_to: { type: "string", description: "Team queue. Format: dev.{service} or mini (e.g. dev.minimart, mini)" },
         handoff_note: { type: "string", description: "Context for the receiving agent" },
       },
       required: ["id", "assigned_to"],
@@ -409,7 +408,6 @@ async function createTicket(args: Record<string, unknown>): Promise<CallToolResu
   await writeIndex(TICKET_INDEX, updatedIndex);
 
   const warnings: string[] = [];
-  if (unknownTags.length > 0) warnings.push(`unknown tags passed through: ${unknownTags.join(", ")}`);
   if (assignedToWarning) warnings.push(assignedToWarning);
   if (authorResult.warning) warnings.push(authorResult.warning);
 
@@ -785,6 +783,13 @@ const SURFACE_MAP: Record<string, readonly SurfaceName[]> = {
   assign_ticket: MM,
 };
 
+const DESCRIPTIONS: Record<string, Partial<Record<SurfaceName, string>>> = {
+  update_ticket_status: {
+    minimart: "Advance a ticket's status. For full close (archive), use archive_ticket with verification fields after deploy + verification.",
+    minimart_electronics: "Advance ticket status: open→in-progress or in-progress→patched only. Call after push. Do NOT deploy, verify, or archive — mini handles those after receiving the patched handoff.",
+  },
+};
+
 const plugin: Plugin = {
   name: "ticketing-tickets",
   domain: "ticketing",
@@ -792,6 +797,7 @@ const plugin: Plugin = {
     definition: def,
     handler: (args) => handleCall(def.name, args),
     surfaces: SURFACE_MAP[def.name] ?? [],
+    ...(DESCRIPTIONS[def.name] ? { descriptions: DESCRIPTIONS[def.name] } : {}),
   })),
 };
 

@@ -135,7 +135,7 @@ const toolDefs: Tool[] = [
   },
   {
     name: "ollama_digest_service",
-    description: "One-call service health briefing. Reads PM2 status, open tickets/patches, and optionally logs, then returns a 15-25 line briefing via local Ollama. Use at session start for orientation. Ollama reads mini's committed state — not your local edits. Replaces 4-5 tool calls. Cached 5 min.",
+    description: "Deep orientation — health + logs + activity. Burns GPU time, use for investigation not routine checks. Reads PM2 status, open tickets/patches, and optionally logs. Use at session start. Ollama reads mini's committed state — not your local edits. Replaces 4-5 tool calls. Cached 5 min.",
     inputSchema: {
       type: "object",
       properties: {

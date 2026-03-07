@@ -110,12 +110,15 @@ function handleGetToolInfo(
     };
   }
   const available = !allowed || allowed.has(toolName);
+  const resolvedDescription = surfaceName
+    ? pluginRegistry.getDescription(def.name, surfaceName as SurfaceName) ?? def.description
+    : def.description;
   return {
     content: [{
       type: "text",
       text: JSON.stringify({
         name: def.name,
-        description: def.description,
+        description: resolvedDescription,
         inputSchema: def.inputSchema,
         available_on_surface: available,
         surface: surfaceName ?? "minimart",
@@ -132,10 +135,15 @@ export function getRegisteredToolNames(): string[] {
   return [...getRegisteredToolDefinitions(), GET_TOOL_INFO_DEF].map((t) => t.name);
 }
 
-function getAllToolDefinitions(allowed?: Set<string>): Tool[] {
+function getAllToolDefinitions(allowed?: Set<string>, surface?: SurfaceName): Tool[] {
   const all = [...getRegisteredToolDefinitions(), GET_TOOL_INFO_DEF];
-  if (!allowed) return all;
-  return all.filter((t) => allowed.has(t.name));
+  const filtered = !allowed ? all : all.filter((t) => allowed.has(t.name));
+  if (!surface) return filtered;
+  return filtered.map((t) => {
+    const desc = pluginRegistry.getDescription(t.name, surface);
+    if (!desc || desc === t.description) return t;
+    return { ...t, description: desc };
+  });
 }
 
 /** Expose registry for surface snapshot verification and future native plugins. */
@@ -213,7 +221,7 @@ export function createServer(config?: ServerConfig): Server {
   );
 
   server.setRequestHandler(ListToolsRequestSchema, async () => {
-    return { tools: getAllToolDefinitions(allowed) };
+    return { tools: getAllToolDefinitions(allowed, serverName as SurfaceName) };
   });
 
   server.setRequestHandler(CallToolRequestSchema, async (request) => {

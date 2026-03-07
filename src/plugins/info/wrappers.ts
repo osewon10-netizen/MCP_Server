@@ -29,7 +29,7 @@ const toolDefs: Tool[] = [
   {
     name: "run_wrapper",
     description:
-      "Execute an ops or deploy wrapper script by relative path. Only scripts under the wrappers directory are allowed.",
+      "Run an ops script by relative path. Never use on minimart — ops_minimart_deploy.sh disconnects the MCP session. Only scripts under the wrappers directory are allowed.",
     inputSchema: {
       type: "object",
       properties: {

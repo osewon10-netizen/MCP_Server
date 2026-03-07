@@ -33,11 +33,22 @@ export class PluginRegistry {
     return [...this.toolIndex.keys()];
   }
 
-  /** Tool definitions filtered to a specific surface. */
+  /** Tool definitions filtered to a specific surface, with surface-specific descriptions applied. */
   getDefinitionsForSurface(surface: SurfaceName): Tool[] {
     return [...this.toolIndex.values()]
       .filter((pt) => pt.surfaces.includes(surface))
-      .map((pt) => pt.definition);
+      .map((pt) => {
+        const surfaceDesc = pt.descriptions?.[surface];
+        if (!surfaceDesc) return pt.definition;
+        return { ...pt.definition, description: surfaceDesc };
+      });
+  }
+
+  /** Resolve the description for a tool on a given surface. Falls back to base description. */
+  getDescription(name: string, surface: SurfaceName): string | undefined {
+    const pt = this.toolIndex.get(name);
+    if (!pt) return undefined;
+    return pt.descriptions?.[surface] ?? pt.definition.description;
   }
 
   /** Tool names for a specific surface — the generated allowlist. */

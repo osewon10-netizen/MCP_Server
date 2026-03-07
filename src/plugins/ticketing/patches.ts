@@ -79,12 +79,11 @@ const toolDefs: Tool[] = [
   },
   {
     name: "view_patch",
-    description: "View a patch by ID. Checks open index first, then archive. Returns structured entry (default) or human-readable text (mode=human).",
+    description: "View a patch by ID. Checks open index first, then archive. Returns structured entry.",
     inputSchema: {
       type: "object",
       properties: {
         id: { type: "string", description: "Patch ID, e.g. PA-042" },
-        mode: { type: "string", enum: ["entry", "human"], description: "Output mode (default: entry)" },
       },
       required: ["id"],
     },
@@ -107,7 +106,7 @@ const toolDefs: Tool[] = [
         what_to_change: { type: "string" },
         why: { type: "string" },
         where_to_change: { type: "array", items: { type: "string" } },
-        assigned_to: { type: "string", description: "Team queue (e.g. dev.minimart, mini)" },
+        assigned_to: { type: "string", description: "Team queue. Format: dev.{service} or mini (e.g. dev.minimart, mini)" },
         author: { type: "string" },
       },
       required: ["service", "summary", "priority", "category", "tags", "what_to_change", "why", "where_to_change", "author"],
@@ -143,7 +142,7 @@ const toolDefs: Tool[] = [
   },
   {
     name: "update_patch_status",
-    description: "Advance a patch's status. Transitions: open → applied → verified. Applied patches are auto-handed to mini; verified patches archive immediately.",
+    description: "Advance a patch's status. Applied patches are auto-handed to mini.",
     inputSchema: {
       type: "object",
       properties: {
@@ -208,7 +207,7 @@ const toolDefs: Tool[] = [
       type: "object",
       properties: {
         id: { type: "string", description: "Patch ID" },
-        assigned_to: { type: "string", description: "Team queue (e.g. dev.minimart, mini)" },
+        assigned_to: { type: "string", description: "Team queue. Format: dev.{service} or mini (e.g. dev.minimart, mini)" },
         handoff_note: { type: "string", description: "Context for the receiving agent" },
       },
       required: ["id", "assigned_to"],
@@ -349,7 +348,6 @@ async function createPatch(args: Record<string, unknown>): Promise<CallToolResul
   await writeIndex(PATCH_INDEX, updatedIndex);
 
   const warnings: string[] = [];
-  if (unknownTags.length > 0) warnings.push(`unknown tags passed through: ${unknownTags.join(", ")}`);
   if (assignedToWarning) warnings.push(assignedToWarning);
   if (authorResult.warning) warnings.push(authorResult.warning);
 
@@ -711,6 +709,13 @@ const SURFACE_MAP: Record<string, readonly SurfaceName[]> = {
   assign_patch: MM,
 };
 
+const DESCRIPTIONS: Record<string, Partial<Record<SurfaceName, string>>> = {
+  update_patch_status: {
+    minimart: "Advance a patch's status. Transitions: open→applied→verified. Applied patches auto-hand to mini; verified patches archive immediately.",
+    minimart_electronics: "Apply a patch: open→applied only. Do NOT verify or archive — mini handles those. Applied patches auto-hand to mini.",
+  },
+};
+
 const plugin: Plugin = {
   name: "ticketing-patches",
   domain: "ticketing",
@@ -718,6 +723,7 @@ const plugin: Plugin = {
     definition: def,
     handler: (args) => handleCall(def.name, args),
     surfaces: SURFACE_MAP[def.name] ?? [],
+    ...(DESCRIPTIONS[def.name] ? { descriptions: DESCRIPTIONS[def.name] } : {}),
   })),
 };
 

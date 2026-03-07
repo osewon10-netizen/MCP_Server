@@ -33,7 +33,7 @@ const toolDefs: Tool[] = [
   {
     name: "quick_status",
     description:
-      "Lightweight health glance: PM2 process names + statuses, open ticket count, open patch count. Skips disk, backup, watchdog, and MANTIS queries. Use server_overview for full diagnostics.",
+      "Instant glance — PM2 state + open ticket/patch counts. No GPU cost. Skips disk, backup, watchdog, and MANTIS queries. Use server_overview for full diagnostics.",
     inputSchema: {
       type: "object",
       properties: {},
@@ -72,7 +72,7 @@ const toolDefs: Tool[] = [
   {
     name: "peek",
     description:
-      "Read-only view of a ticket or patch with related entries and project info. No side effects.",
+      "Bundles ticket/patch + all related entries + project info in one call. Use for orientation before diving into individual tools. No side effects.",
     inputSchema: {
       type: "object",
       properties: {

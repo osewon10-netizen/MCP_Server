@@ -73,7 +73,7 @@ const toolDefs: Tool[] = [
   {
     name: "pm2_restart",
     description:
-      "Restart a PM2 process by name with post-restart health poll. Bypasses MANTIS runner (no confirmation needed).",
+      "Bounce process only — no pull or build. Use for config changes or quick recovery. Bypasses MANTIS runner (no confirmation needed).",
     inputSchema: {
       type: "object",
       properties: {
