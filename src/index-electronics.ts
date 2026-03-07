@@ -46,7 +46,17 @@ async function handleMcp(req: IncomingMessage, res: ServerResponse): Promise<voi
 
   await server.connect(transport);
 
-  const body = await parseJsonBody(req);
+  let body: unknown;
+  try {
+    body = await parseJsonBody(req);
+  } catch (err) {
+    if (err instanceof SyntaxError) {
+      res.writeHead(400, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: "Invalid JSON" }));
+      return;
+    }
+    throw err;
+  }
   await transport.handleRequest(req, res, body);
 }
 
