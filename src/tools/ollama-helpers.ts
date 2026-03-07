@@ -4,7 +4,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import type { Tool, CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { ollamaGenerate } from "../lib/ollama-client.js";
-import { SERVICE_REPOS, METRICS_DIR, OLLAMA_EVALS_PATH } from "../lib/paths.js";
+import { SERVICE_REPOS, METRICS_DIR, OLLAMA_EVALS_PATH, PROMPTS_DIR } from "../lib/paths.js";
 import { handleCall as logsHandleCall } from "./logs.js";
 import { handleCall as healthHandleCall } from "./health.js";
 import { handleCall as ticketsHandleCall } from "./tickets.js";
@@ -28,6 +28,18 @@ const SOURCE_BINARY_EXTENSIONS = new Set([
   ".woff", ".woff2", ".ttf", ".eot",
   ".mp4", ".mp3", ".wav",
 ]);
+
+// ─── Prompt Loading ──────────────────────────────────────────────────
+// Loads helper prompt templates from prompts/ at call time (no caching) so
+// edits to .md files take effect on the next request without a server restart.
+async function loadHelperPrompt(name: string): Promise<string> {
+  const filePath = path.join(PROMPTS_DIR, `${name}.md`);
+  try {
+    return await fs.readFile(filePath, "utf-8");
+  } catch (err) {
+    throw new Error(`Helper prompt not found: ${filePath} (${err instanceof Error ? err.message : String(err)})`);
+  }
+}
 
 // ─── Log Preprocessing ───────────────────────────────────────────────
 // PM2 collapses repeated identical lines into `<line> (xN)`.
@@ -242,27 +254,7 @@ async function ollamaSummarizeLogs(args: Record<string, unknown>): Promise<CallT
   }
 
   // 2. Build prompt
-  const promptTemplate = `You are a log analyst. Summarize these PM2 logs concisely for a senior developer.
-
-## Logs
-{logs}
-
-## Instructions
-Write a brief summary (10-15 lines max) covering:
-- Overall health: is the service running normally?
-- Error count and types (if any)
-- Warning count and types (if any)
-- Notable patterns (repeated errors, timeouts, connection issues)
-- Anything unusual or worth investigating
-
-Be direct. No filler. If logs look clean, say so in 2-3 lines.
-
-## Severity Rules (strict)
-- Only flag ERROR or FATAL lines as critical issues
-- WARN lines are informational unless they repeat 10+ times in this window
-- INFO lines are NEVER flagged as problems
-- Lines containing "rejected:" are INPUT VALIDATION working correctly — classify as INFO, not ERROR
-- If the service is running fine with only INFO/WARN noise, say so in 2-3 lines and stop`;
+  const promptTemplate = await loadHelperPrompt("helper_summarize_logs");
 
   const prompt = loadPromptTemplate(promptTemplate, { logs: logText });
   inputChars = prompt.length;
@@ -396,31 +388,7 @@ async function ollamaDigestService(args: Record<string, unknown>): Promise<CallT
   if (mode === "full" && logsResult.status === "fulfilled" && logsResult.value !== null) sources.push("service_logs");
 
   // 4. Build prompt
-  const promptTemplate = `You are a service health analyst. Write a concise briefing for a senior developer about to work on this service.
-
-## Service: {service}
-
-### PM2 Status
-{pm2_status}
-
-### Recent Logs (last 100 lines)
-{logs}
-
-### Open Tickets
-{tickets}
-
-### Open Patches
-{patches}
-
-## Instructions
-Write a briefing (15-25 lines max) covering:
-- **Status line:** one sentence — is the service healthy, degraded, or down?
-- **Process health:** CPU, memory, restarts, uptime
-- **Recent errors:** any errors or warnings in logs (count + types)
-- **Open work:** list open TK/PA IDs with one-line summaries
-- **Recommendation:** what should the developer look at first?
-
-Be direct and specific. Reference ticket/patch IDs. If everything looks clean, say so briefly.`;
+  const promptTemplate = await loadHelperPrompt("helper_digest_service");
 
   const prompt = loadPromptTemplate(promptTemplate, {
     service,
@@ -811,27 +779,8 @@ async function ollamaTriageTicket(args: Record<string, unknown>): Promise<CallTo
     return { content: [{ type: "text", text: `Failed to read ${id}: ${err instanceof Error ? err.message : String(err)}` }], isError: true };
   }
 
-  const prompt = `You are a deployment triage agent. Decide if this ticket/patch is ready for mini (production agent) to verify and deploy.
-
-## Entry
-${entryText}
-
-## Readiness Rules
-- NOT ready if status is "open", "in-progress", "resolved", or "verified" (must be "patched" or "applied")
-- NOT ready if patch_notes is empty and deploy_notes is absent
-- A commit reference ONLY counts if an explicit "commit" field contains a 7+ character hex SHA
-- Do NOT treat applied_by, assigned_to, names, timestamps, patch_notes, deploy_notes text, or other fields as commit evidence
-- READY if status is "patched"/"applied" AND a valid commit reference is present
-
-## Response format (JSON only, no other text)
-{
-  "ready": true or false,
-  "reason": "one sentence explaining the decision",
-  "verify_steps": ["step 1", "step 2"]
-}
-
-If not ready, verify_steps should be what the dev agent still needs to do.
-If ready, verify_steps should be what mini should check during verification.`;
+  const promptTemplate = await loadHelperPrompt("helper_triage_ticket");
+  const prompt = loadPromptTemplate(promptTemplate, { entry: entryText });
 
   let answer: string | null = null;
   let ollamaOk = false;
@@ -881,28 +830,12 @@ async function ollamaCompareLogs(args: Record<string, unknown>): Promise<CallToo
 
   const start = Date.now();
 
-  const prompt = `You are a deployment verification agent. Compare these two log snapshots for service "${service}" and identify what changed.
-
-## Before Deploy
-${expandLogMultipliers(beforeLogs).slice(0, 8000)}
-
-## After Deploy
-${expandLogMultipliers(afterLogs).slice(0, 8000)}
-
-## Severity Rules
-- Only flag ERROR or FATAL lines as problems
-- WARN lines are informational unless they increased significantly
-- New INFO lines are not problems
-- Latency differences under 10% or 50ms are noise; classify them as unchanged
-- Increased tool count (for example 79 -> 81) is an improvement because more tools are registered, not a degradation
-
-## Response format (JSON only, no other text)
-{
-  "status_change": "improved" | "degraded" | "unchanged",
-  "improved": ["thing that got better"],
-  "degraded": ["thing that got worse"],
-  "unchanged": ["thing that stayed the same"]
-}`;
+  const promptTemplate = await loadHelperPrompt("helper_compare_logs");
+  const prompt = loadPromptTemplate(promptTemplate, {
+    service,
+    before_logs: expandLogMultipliers(beforeLogs).slice(0, 8000),
+    after_logs: expandLogMultipliers(afterLogs).slice(0, 8000),
+  });
 
   let answer: string | null = null;
   let ollamaOk = false;
