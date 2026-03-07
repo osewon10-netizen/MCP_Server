@@ -6,6 +6,10 @@ import {
   type CallToolResult,
 } from "@modelcontextprotocol/sdk/types.js";
 
+import { PluginRegistry } from "./core/registry.js";
+import { wrapLegacyModule } from "./core/compat.js";
+import type { LegacyToolModule } from "./core/types.js";
+
 import * as ticketMod from "./tools/tickets.js";
 import * as patchMod from "./tools/patches.js";
 import * as tagMod from "./tools/tags.js";
@@ -66,6 +70,41 @@ const toolModules: ToolModule[] = [
   context7Mod,
   githubMod,
 ];
+
+// --- Plugin Registry (dual-path: mirrors old toolModules via compat bridge) ---
+
+const LEGACY_MODULE_MAP: [LegacyToolModule, string, string][] = [
+  [ticketMod, "ticketing-tickets", "ticketing"],
+  [patchMod, "ticketing-patches", "ticketing"],
+  [tagMod, "info-tags", "info"],
+  [registryMod, "info-registry", "info"],
+  [mantisToolMod, "mantis", "mantis"],
+  [healthMod, "ops-health", "ops"],
+  [logMod, "ops-logs", "ops"],
+  [deployMod, "ops-deploy", "ops"],
+  [reviewMod, "review", "review"],
+  [cronMod, "ops-cron", "ops"],
+  [memoryMod, "info-memory", "info"],
+  [gitMod, "git", "git"],
+  [ollamaMod, "ollama-core", "ollama"],
+  [wrappersMod, "info-wrappers", "info"],
+  [overviewMod, "info-overview", "info"],
+  [filesMod, "files", "files"],
+  [networkMod, "info-network", "info"],
+  [trainingMod, "review-training", "review"],
+  [ocMod, "oc", "oc"],
+  [taskConfigMod, "oc-task-config", "oc"],
+  [ollamaHelpersMod, "ollama-helpers", "ollama"],
+  [plansMod, "plans", "plans"],
+  [plansOpsMod, "plans-ops", "plans"],
+  [context7Mod, "external-context7", "external"],
+  [githubMod, "external-github", "external"],
+];
+
+const pluginRegistry = new PluginRegistry();
+for (const [mod, name, domain] of LEGACY_MODULE_MAP) {
+  pluginRegistry.register(wrapLegacyModule(mod, name, domain));
+}
 
 /**
  * Transition guards restrict which status transitions are allowed on a surface.
@@ -133,6 +172,9 @@ function handleGetToolInfo(
 }
 
 export function getRegisteredToolDefinitions(): Tool[] {
+  // Prefer registry (includes all legacy-wrapped tools); fall back to old array
+  const fromRegistry = pluginRegistry.getAllDefinitions();
+  if (fromRegistry.length > 0) return fromRegistry;
   return toolModules.flatMap((m) => m.tools);
 }
 
@@ -144,6 +186,11 @@ function getAllToolDefinitions(allowed?: Set<string>): Tool[] {
   const all = [...getRegisteredToolDefinitions(), GET_TOOL_INFO_DEF];
   if (!allowed) return all;
   return all.filter((t) => allowed.has(t.name));
+}
+
+/** Expose registry for surface snapshot verification and future native plugins. */
+export function getPluginRegistry(): PluginRegistry {
+  return pluginRegistry;
 }
 
 async function dispatchTool(
@@ -172,6 +219,10 @@ async function dispatchTool(
       isError: true,
     };
   }
+
+  // Dual-path dispatch: check plugin registry first, fall back to old toolModules
+  const registryResult = await pluginRegistry.dispatch(name, args);
+  if (registryResult !== undefined) return registryResult;
 
   for (const mod of toolModules) {
     if (mod.tools.some((t) => t.name === name)) {
