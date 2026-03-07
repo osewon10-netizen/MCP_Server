@@ -3,12 +3,13 @@ import { promisify } from "node:util";
 import fs from "node:fs/promises";
 import path from "node:path";
 import type { Tool, CallToolResult } from "@modelcontextprotocol/sdk/types.js";
-import { ollamaGenerate } from "../shared/ollama-client.js";
-import { SERVICE_REPOS, METRICS_DIR, OLLAMA_EVALS_PATH, PROMPTS_DIR } from "../shared/paths.js";
-import { handleCall as logsHandleCall } from "../plugins/ops/logs.js";
-import { handleCall as healthHandleCall } from "./health.js";
-import { handleCall as ticketsHandleCall } from "./tickets.js";
-import { handleCall as patchesHandleCall } from "./patches.js";
+import type { Plugin, SurfaceName } from "../../core/types.js";
+import { ollamaGenerate } from "../../shared/ollama-client.js";
+import { SERVICE_REPOS, METRICS_DIR, OLLAMA_EVALS_PATH, PROMPTS_DIR } from "../../shared/paths.js";
+import { handleCall as logsHandleCall } from "../ops/logs.js";
+import { handleCall as healthHandleCall } from "../ops/health.js";
+import { handleCall as ticketsHandleCall } from "../../tools/tickets.js";
+import { handleCall as patchesHandleCall } from "../../tools/patches.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -119,7 +120,7 @@ function loadPromptTemplate(template: string, vars: Record<string, string>): str
 
 // ─── Tool Definitions ────────────────────────────────────────────────
 
-export const tools: Tool[] = [
+const toolDefs: Tool[] = [
   {
     name: "ollama_summarize_logs",
     description: "Compress PM2 log output into a structured natural-language summary using local Ollama inference. Returns ~10-line summary instead of raw logs. Cached 5 min.",
@@ -938,7 +939,7 @@ async function ollamaEval(args: Record<string, unknown>): Promise<CallToolResult
 
 // ─── Dispatch ────────────────────────────────────────────────────────
 
-export async function handleCall(name: string, args: Record<string, unknown>): Promise<CallToolResult> {
+async function handleCall(name: string, args: Record<string, unknown>): Promise<CallToolResult> {
   switch (name) {
     case "ollama_summarize_logs": return ollamaSummarizeLogs(args);
     case "ollama_digest_service": return ollamaDigestService(args);
@@ -951,3 +952,30 @@ export async function handleCall(name: string, args: Record<string, unknown>): P
       return { content: [{ type: "text", text: `Unknown tool: ${name}` }], isError: true };
   }
 }
+
+const MM_EL: readonly SurfaceName[] = ["minimart", "minimart_electronics"];
+const EX_EL: readonly SurfaceName[] = ["minimart_express", "minimart_electronics"];
+const ALL: readonly SurfaceName[] = ["minimart", "minimart_express", "minimart_electronics"];
+const EL: readonly SurfaceName[] = ["minimart_electronics"];
+
+const SURFACE_MAP: Record<string, readonly SurfaceName[]> = {
+  ollama_summarize_logs: MM_EL,
+  ollama_digest_service: MM_EL,
+  ollama_summarize_source: EL,
+  ollama_summarize_diff: EX_EL,
+  ollama_triage_ticket: ALL,
+  ollama_compare_logs: ALL,
+  ollama_eval: MM_EL,
+};
+
+const plugin: Plugin = {
+  name: "ollama-helpers",
+  domain: "ollama",
+  tools: toolDefs.map((def) => ({
+    definition: def,
+    handler: (args) => handleCall(def.name, args),
+    surfaces: SURFACE_MAP[def.name] ?? [],
+  })),
+};
+
+export default plugin;

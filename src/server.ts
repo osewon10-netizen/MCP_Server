@@ -12,16 +12,10 @@ import type { LegacyToolModule } from "./core/types.js";
 
 import * as ticketMod from "./tools/tickets.js";
 import * as patchMod from "./tools/patches.js";
-// Legacy modules (still in src/tools/ — phases 07-12 will extract these)
-import * as mantisToolMod from "./tools/mantis.js";
-import * as healthMod from "./tools/health.js";
-import * as deployMod from "./tools/deploy.js";
-import * as cronMod from "./tools/cron.js";
-import * as ollamaMod from "./tools/ollama.js";
+// Legacy modules (still in src/tools/ — phases 10-12 will extract these)
 import * as trainingMod from "./tools/training.js";
 import * as ocMod from "./tools/oc.js";
 import * as taskConfigMod from "./tools/task-config.js";
-import * as ollamaHelpersMod from "./tools/ollama-helpers.js";
 import * as plansMod from "./tools/plans.js";
 import * as plansOpsMod from "./tools/plans-ops.js";
 
@@ -38,6 +32,12 @@ import githubPlugin from "./plugins/external/github.js";
 import gitPlugin from "./plugins/git/git.js";
 import filesPlugin from "./plugins/files/files.js";
 import logsPlugin from "./plugins/ops/logs.js";
+import healthPlugin from "./plugins/ops/health.js";
+import deployPlugin from "./plugins/ops/deploy.js";
+import cronPlugin from "./plugins/ops/cron.js";
+import ollamaCorePlugin from "./plugins/ollama/core.js";
+import ollamaHelpersPlugin from "./plugins/ollama/helpers.js";
+import mantisPlugin from "./plugins/mantis/mantis.js";
 
 type ToolHandler = (name: string, args: Record<string, unknown>) => Promise<CallToolResult>;
 
@@ -49,46 +49,37 @@ interface ToolModule {
 const toolModules: ToolModule[] = [
   ticketMod,
   patchMod,
-  mantisToolMod,
-  healthMod,
-  deployMod,
-  cronMod,
-  ollamaMod,
   trainingMod,
   ocMod,
   taskConfigMod,
-  ollamaHelpersMod,
   plansMod,
   plansOpsMod,
 ];
 
 // --- Plugin Registry (dual-path: mirrors old toolModules via compat bridge) ---
 
-// Legacy modules still using compat bridge (phases 07-12 will convert these)
+// Legacy modules still using compat bridge (phases 10-12 will convert these)
 const LEGACY_MODULE_MAP: [LegacyToolModule, string, string][] = [
   [ticketMod, "ticketing-tickets", "ticketing"],
   [patchMod, "ticketing-patches", "ticketing"],
-  [mantisToolMod, "mantis", "mantis"],
-  [healthMod, "ops-health", "ops"],
-  [deployMod, "ops-deploy", "ops"],
-  [cronMod, "ops-cron", "ops"],
-  [ollamaMod, "ollama-core", "ollama"],
   [trainingMod, "review-training", "review"],
   [ocMod, "oc", "oc"],
   [taskConfigMod, "oc-task-config", "oc"],
-  [ollamaHelpersMod, "ollama-helpers", "ollama"],
   [plansMod, "plans", "plans"],
   [plansOpsMod, "plans-ops", "plans"],
 ];
 
 const pluginRegistry = new PluginRegistry();
 
-// Register native plugins (phases 03-06)
+// Register native plugins (phases 03-09)
 const NATIVE_PLUGINS = [
   tagsPlugin, registryPlugin, networkPlugin,       // phase 03
   memoryPlugin, reviewPlugin, wrappersPlugin, overviewPlugin,  // phase 04
   context7Plugin, githubPlugin,                     // phase 05
   gitPlugin, filesPlugin, logsPlugin,               // phase 06
+  healthPlugin, deployPlugin, cronPlugin,           // phase 07
+  ollamaCorePlugin, ollamaHelpersPlugin,            // phase 08
+  mantisPlugin,                                     // phase 09
 ];
 for (const plugin of NATIVE_PLUGINS) {
   pluginRegistry.register(plugin);

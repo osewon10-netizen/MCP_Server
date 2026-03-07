@@ -1,7 +1,8 @@
 import type { Tool, CallToolResult } from "@modelcontextprotocol/sdk/types.js";
-import { mantisQuery, mantisMutation } from "../shared/mantis-client.js";
+import type { Plugin } from "../../core/types.js";
+import { mantisQuery, mantisMutation } from "../../shared/mantis-client.js";
 
-export const tools: Tool[] = [
+const toolDefs: Tool[] = [
   {
     name: "mantis_events",
     description: "List recent MANTIS events. Filter by service, category, or time window.",
@@ -78,7 +79,7 @@ async function wrap(fn: () => Promise<unknown>): Promise<CallToolResult> {
   }
 }
 
-export async function handleCall(name: string, args: Record<string, unknown>): Promise<CallToolResult> {
+async function handleCall(name: string, args: Record<string, unknown>): Promise<CallToolResult> {
   switch (name) {
     case "mantis_events": {
       const { service, category, limit, since } = args;
@@ -117,3 +118,15 @@ export async function handleCall(name: string, args: Record<string, unknown>): P
       return { content: [{ type: "text", text: `Unknown tool: ${name}` }], isError: true };
   }
 }
+
+const plugin: Plugin = {
+  name: "mantis",
+  domain: "mantis",
+  tools: toolDefs.map((def) => ({
+    definition: def,
+    handler: (args) => handleCall(def.name, args),
+    surfaces: ["minimart"] as const,
+  })),
+};
+
+export default plugin;

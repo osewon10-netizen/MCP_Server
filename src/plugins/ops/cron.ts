@@ -1,8 +1,9 @@
 import type { Tool, CallToolResult } from "@modelcontextprotocol/sdk/types.js";
-import { mantisQuery, mantisMutation } from "../shared/mantis-client.js";
-import type { MantisRunnerResult } from "../types.js";
+import type { Plugin } from "../../core/types.js";
+import { mantisQuery, mantisMutation } from "../../shared/mantis-client.js";
+import type { MantisRunnerResult } from "../../types.js";
 
-export const tools: Tool[] = [
+const toolDefs: Tool[] = [
   {
     name: "list_crons",
     description: "List cron jobs managed by MANTIS.",
@@ -128,7 +129,7 @@ async function triggerCron(args: Record<string, unknown>): Promise<CallToolResul
   }
 }
 
-export async function handleCall(name: string, args: Record<string, unknown>): Promise<CallToolResult> {
+async function handleCall(name: string, args: Record<string, unknown>): Promise<CallToolResult> {
   switch (name) {
     case "list_crons": return listCrons();
     case "cron_log": return cronLog(args);
@@ -137,3 +138,15 @@ export async function handleCall(name: string, args: Record<string, unknown>): P
       return { content: [{ type: "text", text: `Unknown tool: ${name}` }], isError: true };
   }
 }
+
+const plugin: Plugin = {
+  name: "ops-cron",
+  domain: "ops",
+  tools: toolDefs.map((def) => ({
+    definition: def,
+    handler: (args) => handleCall(def.name, args),
+    surfaces: ["minimart"] as const,
+  })),
+};
+
+export default plugin;

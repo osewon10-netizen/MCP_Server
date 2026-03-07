@@ -1,7 +1,8 @@
 import type { Tool, CallToolResult } from "@modelcontextprotocol/sdk/types.js";
-import { ollamaGenerate, ollamaListModels } from "../shared/ollama-client.js";
+import type { Plugin } from "../../core/types.js";
+import { ollamaGenerate, ollamaListModels } from "../../shared/ollama-client.js";
 
-export const tools: Tool[] = [
+const toolDefs: Tool[] = [
   {
     name: "ollama_generate",
     description: "Generate a response from a local Ollama model.",
@@ -46,7 +47,7 @@ async function ollamaModelsTool(): Promise<CallToolResult> {
   }
 }
 
-export async function handleCall(name: string, args: Record<string, unknown>): Promise<CallToolResult> {
+async function handleCall(name: string, args: Record<string, unknown>): Promise<CallToolResult> {
   switch (name) {
     case "ollama_generate": return ollamaGenerateTool(args);
     case "ollama_models": return ollamaModelsTool();
@@ -54,3 +55,15 @@ export async function handleCall(name: string, args: Record<string, unknown>): P
       return { content: [{ type: "text", text: `Unknown tool: ${name}` }], isError: true };
   }
 }
+
+const plugin: Plugin = {
+  name: "ollama-core",
+  domain: "ollama",
+  tools: toolDefs.map((def) => ({
+    definition: def,
+    handler: (args) => handleCall(def.name, args),
+    surfaces: ["minimart", "minimart_express"] as const,
+  })),
+};
+
+export default plugin;

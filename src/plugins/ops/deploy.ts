@@ -1,9 +1,10 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import type { Tool, CallToolResult } from "@modelcontextprotocol/sdk/types.js";
-import { mantisQuery, mantisMutation } from "../shared/mantis-client.js";
-import { SERVICE_REPOS } from "../shared/paths.js";
-import type { MantisServiceState, MantisRunnerResult } from "../types.js";
+import type { Plugin } from "../../core/types.js";
+import { mantisQuery, mantisMutation } from "../../shared/mantis-client.js";
+import { SERVICE_REPOS } from "../../shared/paths.js";
+import type { MantisServiceState, MantisRunnerResult } from "../../types.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -18,7 +19,7 @@ function validateService(service: unknown): CallToolResult | null {
   return null;
 }
 
-export const tools: Tool[] = [
+const toolDefs: Tool[] = [
   {
     name: "deploy_status",
     description: "Get deployment status for a service: commits behind, current state, last check.",
@@ -178,7 +179,7 @@ async function rollback(args: Record<string, unknown>): Promise<CallToolResult> 
   }
 }
 
-export async function handleCall(name: string, args: Record<string, unknown>): Promise<CallToolResult> {
+async function handleCall(name: string, args: Record<string, unknown>): Promise<CallToolResult> {
   switch (name) {
     case "deploy_status": return deployStatus(args);
     case "deploy": return deploy(args);
@@ -187,3 +188,15 @@ export async function handleCall(name: string, args: Record<string, unknown>): P
       return { content: [{ type: "text", text: `Unknown tool: ${name}` }], isError: true };
   }
 }
+
+const plugin: Plugin = {
+  name: "ops-deploy",
+  domain: "ops",
+  tools: toolDefs.map((def) => ({
+    definition: def,
+    handler: (args) => handleCall(def.name, args),
+    surfaces: ["minimart"] as const,
+  })),
+};
+
+export default plugin;

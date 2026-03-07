@@ -2,14 +2,15 @@ import { execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
 import fs from "node:fs/promises";
 import type { Tool, CallToolResult } from "@modelcontextprotocol/sdk/types.js";
-import { pm2List } from "../shared/pm2-client.js";
-import { mantisQuery, mantisHealthCheck } from "../shared/mantis-client.js";
-import { BACKUP_DIR } from "../shared/paths.js";
-import type { MantisServiceState } from "../types.js";
+import type { Plugin, SurfaceName } from "../../core/types.js";
+import { pm2List } from "../../shared/pm2-client.js";
+import { mantisQuery, mantisHealthCheck } from "../../shared/mantis-client.js";
+import { BACKUP_DIR } from "../../shared/paths.js";
+import type { MantisServiceState } from "../../types.js";
 
 const execFileAsync = promisify(execFile);
 
-export const tools: Tool[] = [
+const toolDefs: Tool[] = [
   {
     name: "pm2_status",
     description: "Get PM2 process status. Default compact output: name + status + uptime only. Set verbose=true for full details (cpu, memory, restarts, pid).",
@@ -299,6 +300,7 @@ async function pm2Restart(args: Record<string, unknown>): Promise<CallToolResult
   };
 }
 
+// Exported for cross-module use (ollama-helpers calls this directly)
 export async function handleCall(name: string, args: Record<string, unknown>): Promise<CallToolResult> {
   switch (name) {
     case "pm2_status": return pm2Status(args);
@@ -312,3 +314,28 @@ export async function handleCall(name: string, args: Record<string, unknown>): P
       return { content: [{ type: "text", text: `Unknown tool: ${name}` }], isError: true };
   }
 }
+
+const MM: readonly SurfaceName[] = ["minimart"];
+const MM_EX: readonly SurfaceName[] = ["minimart", "minimart_express"];
+
+const SURFACE_MAP: Record<string, readonly SurfaceName[]> = {
+  pm2_status: MM_EX,
+  service_health: MM_EX,
+  disk_usage: MM_EX,
+  backup_status: MM_EX,
+  mantis_health: MM,
+  tail_service_url: MM,
+  pm2_restart: MM,
+};
+
+const plugin: Plugin = {
+  name: "ops-health",
+  domain: "ops",
+  tools: toolDefs.map((def) => ({
+    definition: def,
+    handler: (args) => handleCall(def.name, args),
+    surfaces: SURFACE_MAP[def.name] ?? [],
+  })),
+};
+
+export default plugin;
