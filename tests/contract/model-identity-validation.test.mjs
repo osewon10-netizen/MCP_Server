@@ -21,6 +21,7 @@ test("model identity accepts codex/claude/gemini tiered formats", () => {
 });
 
 test("assigned_to validation supports tiered identities and warns on partial forms", () => {
+  // Full tiered identities still accepted
   assert.equal(validateAssignedTo("dev.minimart.codex.5.3.mid").valid, true);
   assert.equal(validateAssignedTo("dev.minimart.claude.sonnet.4.6.std").valid, true);
   assert.equal(validateAssignedTo("mini.minimart.gemini.2.5.high").valid, true);
@@ -30,7 +31,13 @@ test("assigned_to validation supports tiered identities and warns on partial for
   assert.equal(missingModel.valid, true);
   assert.equal(missingModel.warning, undefined);
 
-  const invalid = validateAssignedTo("dev.minimart.claude.sonnet.4.6.ultra");
-  assert.equal(invalid.valid, false);
-  assert.ok(invalid.error?.includes("Invalid Claude tier"));
+  // Freeform model names now accepted (PA-186) — no strict tier validation
+  assert.equal(validateAssignedTo("dev.minimart.sonnet").valid, true);
+  assert.equal(validateAssignedTo("dev.minimart.mcminicky").valid, true);
+  assert.equal(validateAssignedTo("dev.minimart.gpt").valid, true);
+  assert.equal(validateAssignedTo("dev.minimart.claude.sonnet.4.6.ultra").valid, true);
+
+  // Still reject structurally invalid forms
+  assert.equal(validateAssignedTo("bad.minimart.sonnet").valid, false);
+  assert.equal(validateAssignedTo("totally-wrong").valid, false);
 });

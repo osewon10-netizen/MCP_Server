@@ -467,6 +467,10 @@ async function updatePatch(args: Record<string, unknown>): Promise<CallToolResul
     return { content: [{ type: "text", text: `Patch ${id} not found in index` }], isError: true };
   }
 
+  if (entry.status !== "open") {
+    return { content: [{ type: "text", text: `Cannot update ${id}: status is "${entry.status}". File a new PA or coordinate with the assigned agent.` }], isError: true };
+  }
+
   if (evidenceRefs !== undefined) entry.evidence_refs = evidenceRefs;
   if (proposedDiff !== undefined) entry.proposed_diff = proposedDiff;
   if (appliedNotes !== undefined) entry.applied_notes = appliedNotes;

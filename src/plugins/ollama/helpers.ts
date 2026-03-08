@@ -13,7 +13,7 @@ import { handleCall as patchesHandleCall } from "../ticketing/patches.js";
 
 const execFileAsync = promisify(execFile);
 
-const HELPER_MODEL = "kamekichi128/qwen3-4b-instruct-2507:latest";
+const HELPER_MODEL = "qwen3.5:4b";
 const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 const MAX_LOG_BYTES = 100 * 1024; // 100KB
 const MAX_RESPONSE_BYTES = 25 * 1024; // 25KB

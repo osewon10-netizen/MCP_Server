@@ -197,25 +197,10 @@ export function validateAssignedTo(
   }
 
   const modelSpec = parts.slice(2).join(".");
-  const model = validateModelIdentity(modelSpec);
-  if (!model.valid) {
-    return { valid: false, error: `Invalid assigned_to "${trimmed}". ${model.error}` };
-  }
-
-  const canonical = `${side}.${service}.${model.canonical ?? modelSpec}`;
-  if (model.warning) {
+  if (!modelSpec || !/^[\w][\w.\-]*$/.test(modelSpec)) {
     return {
-      valid: true,
-      warning: `assigned_to "${trimmed}" uses non-canonical model identity. ${model.warning}`,
-      suggestion: model.suggestion ?? (canonical !== trimmed ? canonical : undefined),
-    };
-  }
-
-  if (canonical !== trimmed) {
-    return {
-      valid: true,
-      warning: `assigned_to "${trimmed}" is non-canonical.`,
-      suggestion: canonical,
+      valid: false,
+      error: `Invalid assigned_to "${trimmed}". Model identity "${modelSpec}" must be a non-empty identifier (e.g. sonnet, opus, claude.sonnet.4.6.std).`,
     };
   }
 

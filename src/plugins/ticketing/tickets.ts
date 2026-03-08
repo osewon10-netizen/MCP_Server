@@ -528,6 +528,10 @@ async function updateTicket(args: Record<string, unknown>): Promise<CallToolResu
     return { content: [{ type: "text", text: `Ticket ${id} not found in index` }], isError: true };
   }
 
+  if (entry.status !== "open") {
+    return { content: [{ type: "text", text: `Cannot update ${id}: status is "${entry.status}". File a new TK or coordinate with the assigned agent.` }], isError: true };
+  }
+
   // Update fields directly in the entry
   if (evidence !== undefined) entry.evidence = evidence;
   if (evidenceRefs !== undefined) entry.evidence_refs = evidenceRefs;
